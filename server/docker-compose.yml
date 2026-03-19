@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: fitforge_db
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres1}
+      POSTGRES_DB: FitForgeDB
+    ports:
+      - "5432:5432"
+    volumes:
+      - fitforge_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: fitforge_server
+    depends_on:
+      - db
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - DB_URL=jdbc:postgresql://db:5432/FitForgeDB
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres1}
+      - JWT_SECRET=${JWT_SECRET:-FitForge_Super_Secret_JWT_Key_2026_Change_In_Production!}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost}
+      - PORT=8080
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:8080/api}
+    container_name: fitforge_client
+    ports:
+      - "80:80"
+    restart: unless-stopped
+
+volumes:
+  fitforge_data:

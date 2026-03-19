@@ -1,0 +1,133 @@
+import { defineStore } from 'pinia'
+import api from '@/api'
+
+export const useGroupStore = defineStore('groups', {
+  state: () => ({
+    groups: [],
+    currentGroup: null,
+    members: [],
+    leaderboard: [],
+    posts: [],
+    targets: [],
+    logs: [],
+    loading: false
+  }),
+
+  actions: {
+    async fetchGroups() {
+      this.loading = true
+      try {
+        const { data } = await api.get('/groups')
+        this.groups = data
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async fetchGroup(id) {
+      const { data } = await api.get(`/groups/${id}`)
+      this.currentGroup = data
+      return data
+    },
+
+    async createGroup(payload) {
+      const { data } = await api.post('/groups', payload)
+      this.groups.unshift(data)
+      return data
+    },
+
+    async deleteGroup(groupId) {
+      await api.delete(`/groups/${groupId}`)
+      this.groups = this.groups.filter(g => g.id !== groupId)
+      if (this.currentGroup?.id === groupId) {
+        this.currentGroup = null
+      }
+    },
+
+    async leaveGroup(groupId, userId) {
+      await api.delete(`/groups/${groupId}/members/${userId}`)
+      this.groups = this.groups.filter(g => g.id !== groupId)
+      if (this.currentGroup?.id === groupId) {
+        this.currentGroup = null
+      }
+    },
+
+    async fetchMembers(groupId) {
+      const { data } = await api.get(`/groups/${groupId}/members`)
+      this.members = data
+    },
+
+    async fetchLeaderboard(groupId) {
+      const { data } = await api.get(`/groups/${groupId}/leaderboard`)
+      this.leaderboard = data
+    },
+
+    async fetchPosts(groupId) {
+      const { data } = await api.get(`/groups/${groupId}/posts`)
+      this.posts = data
+    },
+
+    async createPost(groupId, content, postType) {
+      const { data } = await api.post(`/groups/${groupId}/posts`, { content, postType })
+      this.posts.unshift(data)
+    },
+
+    async fetchTargets(groupId, userId) {
+      const { data } = await api.get(`/groups/${groupId}/targets`, { params: { userId } })
+      this.targets = data
+    },
+
+    async updateTarget(groupId, targetId, targetWeight) {
+      const { data } = await api.put(`/groups/${groupId}/targets/${targetId}`, { targetWeight })
+      const idx = this.targets.findIndex(t => t.id === targetId)
+      if (idx !== -1) this.targets[idx] = data
+    },
+
+    async fetchLogs(groupId, userId) {
+      const { data } = await api.get(`/groups/${groupId}/logs`, { params: { userId } })
+      // Only update this.logs if fetching for the current user
+      // Actually, simplest is to just return data and let components manage it
+      return data
+    },
+
+    async createLog(groupId, payload) {
+      const { data } = await api.post(`/groups/${groupId}/logs`, payload)
+      this.logs.unshift(data)
+      return data
+    },
+
+    async updateLog(groupId, logId, payload) {
+      const { data } = await api.put(`/groups/${groupId}/logs/${logId}`, payload)
+      const idx = this.logs.findIndex(l => l.id === logId)
+      if (idx !== -1) this.logs[idx] = data
+      return data
+    },
+
+    async deleteLog(groupId, logId) {
+      await api.delete(`/groups/${groupId}/logs/${logId}`)
+      this.logs = this.logs.filter(l => l.id !== logId)
+    },
+
+    async updatePost(groupId, postId, payload) {
+      const { data } = await api.put(`/groups/${groupId}/posts/${postId}`, payload)
+      const idx = this.posts.findIndex(p => p.id === postId)
+      if (idx !== -1) this.posts[idx] = data
+      return data
+    },
+
+    async deletePost(groupId, postId) {
+      await api.delete(`/groups/${groupId}/posts/${postId}`)
+      this.posts = this.posts.filter(p => p.id !== postId)
+    },
+
+    async createInvite(groupId, email) {
+      const { data } = await api.post(`/groups/${groupId}/invites`, { email })
+      return data
+    },
+
+    async acceptInvite(token, startWeight, goalWeight) {
+      const { data } = await api.post(`/invites/${token}/accept`, { startWeight, goalWeight })
+      return data
+    }
+  }
+})

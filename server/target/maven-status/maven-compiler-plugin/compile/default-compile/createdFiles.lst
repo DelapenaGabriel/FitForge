@@ -1,0 +1,9 @@
+com\fitforge\dto\TargetDto$UpdateRequest.class
+com\fitforge\dto\TargetDto$TargetResponse$TargetResponseBuilder.class
+com\fitforge\dao\WeeklyTargetDao.class
+com\fitforge\dto\TargetDto$TargetResponse.class
+com\fitforge\FitForgeApplication.class
+com\fitforge\model\WeeklyTarget.class
+com\fitforge\service\TargetService.class
+com\fitforge\model\WeeklyTarget$WeeklyTargetBuilder.class
+com\fitforge\dto\TargetDto.class
