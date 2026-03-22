@@ -71,14 +71,10 @@ const openAvatarUpload = () => {
     },
   )
 }
-
-const memberSince = computed(() => {
-  if (!auth.user?.createdAt) return ''
-  return new Date(auth.user.createdAt).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  })
-})
+const logout = () => {
+  auth.logout()
+  router.push('/login')
+}
 </script>
 
 <template>
@@ -146,6 +142,14 @@ const memberSince = computed(() => {
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
         Tap the avatar to upload a new photo. Max 5 MB.
       </p>
+
+      <!-- Logout Button -->
+      <div class="logout-section animate-in animate-in-delay-4">
+        <button class="btn-logout" @click="logout">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Sign Out
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -385,10 +389,43 @@ const memberSince = computed(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  margin-top: 24px;
   text-align: center;
+}
+
+.logout-section {
+  margin-top: 48px;
+  display: flex;
+  justify-content: center;
+}
+
+.btn-logout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 32px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-xl);
+  color: #ef4444;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 100%;
+  max-width: 300px;
+  justify-content: center;
+}
+
+.btn-logout:hover {
+  background: #ef4444;
+  color: #fff;
+  border-color: #ef4444;
+  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
+  transform: translateY(-2px);
+}
+
+.btn-logout:active {
+  transform: translateY(0);
 }
 
 @media (max-width: 640px) {

@@ -1,10 +1,11 @@
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useGroupStore } from "@/stores/groups";
 import ImagePreviewModal from "@/components/ImagePreviewModal.vue";
 import MemberLogsModal from "@/components/MemberLogsModal.vue";
+import LeaderboardCalendar from "@/components/LeaderboardCalendar.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -13,7 +14,57 @@ const groups = useGroupStore();
 
 const groupId = computed(() => Number(route.params.id));
 const activeTab = ref("feed");
+const leaderboardViewMode = ref("calendar");
 const loading = ref(true);
+
+// Calendar User Selection
+const selectedCalendarUser = ref(null);
+const calendarTargets = ref([]);
+
+watch(selectedCalendarUser, async (newUserId) => {
+  if (!newUserId || !groupId.value) return;
+  if (newUserId === auth.user?.id && groups.targets?.length) {
+    calendarTargets.value = groups.targets;
+  } else {
+    try {
+      const targets = await groups.getCalendarTargets(groupId.value, newUserId);
+      if (!targets || targets.length === 0) {
+        // Fallback: manually construct targets from group member data if API doesn't have them mock-seeded
+        const member = groups.members.find(m => m.userId === newUserId);
+        if (member && member.startWeight && member.goalWeight && groups.currentGroup?.totalWeeks) {
+          const totalWeeks = groups.currentGroup.totalWeeks;
+          const start = member.startWeight;
+          const end = member.goalWeight;
+          const weeklyDrop = (start - end) / totalWeeks;
+          
+          const fakeTargets = [];
+          for (let i = 1; i <= totalWeeks; i++) {
+            fakeTargets.push({
+              id: 'fake-' + i,
+              weekNumber: i,
+              targetWeight: Number((start - (weeklyDrop * i)).toFixed(1)),
+              actualWeight: null,
+              coachOverride: false
+            });
+          }
+          calendarTargets.value = fakeTargets;
+        } else {
+          calendarTargets.value = [];
+        }
+      } else {
+        calendarTargets.value = targets;
+      }
+    } catch (err) {
+      console.error("Failed to fetch calendar targets:", err);
+      calendarTargets.value = [];
+    }
+  }
+}, { immediate: true });
+
+const calendarLogs = computed(() => {
+  if (!groups.allLogs) return [];
+  return groups.allLogs.filter(log => log.userId === selectedCalendarUser.value);
+});
 
 // Photo Preview
 const previewImages = ref([]);
@@ -48,7 +99,6 @@ const logWeight = ref("");
 const logCalories = ref("");
 const logNotes = ref("");
 const uploadedPhotos = ref([]);
-const showLogModal = ref(false);
 
 const openUploadWidget = () => {
   if (uploadedPhotos.value.length >= 5) {
@@ -138,9 +188,12 @@ onMounted(async () => {
       groups.fetchLeaderboard(groupId.value),
       groups.fetchMembers(groupId.value),
       groups.fetchTargets(groupId.value, auth.user?.id),
+      groups.fetchAllLogs(groupId.value),
     ]);
     // Fetch logs separately and update store state
     groups.logs = await groups.fetchLogs(groupId.value, auth.user?.id);
+    // Set initial calendar user
+    selectedCalendarUser.value = auth.user?.id;
   } finally {
     loading.value = false;
   }
@@ -149,10 +202,10 @@ onMounted(async () => {
 const isCoach = computed(() => groups.currentGroup?.myRole === "COACH");
 
 const handleLog = async () => {
-  if (!logWeight.value) return;
+  if (!logWeight.value && !logNotes.value && uploadedPhotos.value.length === 0) return;
 
   const payload = {
-    weightLbs: parseFloat(logWeight.value),
+    weightLbs: logWeight.value ? parseFloat(logWeight.value) : null,
     calories: logCalories.value ? parseInt(logCalories.value) : null,
     notes: logNotes.value || null,
     photoUrls: uploadedPhotos.value,
@@ -160,7 +213,7 @@ const handleLog = async () => {
 
   await groups.createLog(groupId.value, payload);
   await groups.fetchLeaderboard(groupId.value);
-  showLogModal.value = false;
+  groups.showLogModal = false;
   logWeight.value = "";
   logCalories.value = "";
   logNotes.value = "";
@@ -174,12 +227,11 @@ const handlePost = async () => {
 };
 
 const handleInvite = async () => {
-  if (!inviteEmail.value) return;
   inviteError.value = "";
   try {
     inviteResult.value = await groups.createInvite(
       groupId.value,
-      inviteEmail.value,
+      inviteEmail.value || "",
     );
     inviteEmail.value = "";
   } catch (e) {
@@ -333,6 +385,37 @@ const formatDate = (d) => {
     day: "numeric",
   });
 };
+
+const groupedFeed = computed(() => {
+  const parseDate = (d) => {
+    if (typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const [y, m, day] = d.split('-').map(Number);
+      return new Date(y, m - 1, day);
+    }
+    return new Date(d);
+  };
+
+  const combined = [
+    ...groups.posts.map(p => ({ ...p, feedType: 'post', sortDate: parseDate(p.createdAt) })),
+    ...(groups.allLogs || []).map(l => ({ ...l, feedType: 'log', sortDate: parseDate(l.logDate) }))
+  ];
+
+  combined.sort((a, b) => b.sortDate - a.sortDate);
+
+  const grouped = {};
+  combined.forEach(item => {
+    const d = item.sortDate;
+    const dateKey = d.toLocaleDateString("en-US", {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    if (!grouped[dateKey]) grouped[dateKey] = [];
+    grouped[dateKey].push(item);
+  });
+
+  return Object.entries(grouped).map(([date, items]) => ({ date, items }));
+});
 </script>
 
 <template>
@@ -382,59 +465,107 @@ const formatDate = (d) => {
 
         <!-- ═══════════════ FEED TAB ═══════════════ -->
         <div v-if="activeTab === 'feed'" class="tab-content animate-in">
-          <div v-if="groups.posts.length === 0" class="empty-state">
+          <div v-if="groupedFeed.length === 0" class="empty-state">
             <div class="empty-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline-block"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
-            <p>No posts yet. Keep training hard!</p>
+            <p>No activity yet. Keep training hard!</p>
           </div>
           
-          <div v-for="post in groups.posts" :key="post.id" class="post-card-premium glass-card">
-            <!-- Feed layout from inspo 5 (Daily Report cards) -->
-            <template v-if="editingPost === post.id">
-              <div class="edit-ui-container">
-                <div class="form-group">
-                  <select v-model="editPostType" class="form-input">
-                    <option value="ADVICE"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline-block mr-1"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg> Advice</option>
-                    <option value="MOTIVATION"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline-block mr-1"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg> Motivation</option>
-                    <option value="ANNOUNCEMENT"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline-block"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Announcement</option>
-                  </select>
-                </div>
-                <textarea v-model="editPostContent" class="form-input" rows="3"></textarea>
-                <div class="flex justify-end gap-3 mt-4">
-                  <button class="btn btn-secondary btn-sm" @click="cancelEditPost">Cancel</button>
-                  <button class="btn btn-primary btn-sm" @click="saveEditPost(post.id)" :disabled="!editPostContent.trim()">Update</button>
-                </div>
-              </div>
-            </template>
+          <div v-for="section in groupedFeed" :key="section.date" class="feed-section mb-12">
+            <div class="date-header-premium mb-10">
+               <span class="date-text">{{ section.date }}</span>
+               <div class="date-line"></div>
+            </div>
 
-            <template v-else>
-              <div class="post-header-top">
-                <div class="post-author">
-                  <div class="avatar avatar-sm avatar-placeholder">{{ getInitials(post.authorName) }}</div>
-                  <div>
-                    <h4 class="post-author-name">{{ post.authorName }}</h4>
-                    <span class="post-timestamp">{{ formatDate(post.createdAt) }}</span>
+            <div v-for="item in section.items" :key="item.feedType + item.id" class="feed-item mb-10">
+              <!-- COACH POSTS -->
+              <template v-if="item.feedType === 'post'">
+                <div class="post-card-premium glass-card">
+                  <template v-if="editingPost === item.id">
+                    <div class="edit-ui-container">
+                      <div class="form-group">
+                        <select v-model="editPostType" class="form-input">
+                          <option value="ADVICE">Advice</option>
+                          <option value="MOTIVATION">Motivation</option>
+                          <option value="ANNOUNCEMENT">Announcement</option>
+                        </select>
+                      </div>
+                      <textarea v-model="editPostContent" class="form-input" rows="3"></textarea>
+                      <div class="flex justify-end gap-3 mt-4">
+                        <button class="btn btn-secondary btn-sm" @click="cancelEditPost">Cancel</button>
+                        <button class="btn btn-primary btn-sm" @click="saveEditPost(item.id)">Update</button>
+                      </div>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="post-header-top">
+                      <div class="post-author">
+                        <img v-if="item.authorAvatar" :src="item.authorAvatar" class="avatar avatar-sm object-cover" />
+                        <div v-else class="avatar avatar-sm avatar-placeholder">{{ getInitials(item.authorName) }}</div>
+                        <div>
+                          <h4 class="post-author-name">{{ item.authorName }}</h4>
+                          <span class="post-timestamp">{{ formatDate(item.createdAt) }}</span>
+                        </div>
+                      </div>
+                      <span class="post-type-tag" :class="item.postType.toLowerCase()">{{ item.postType }}</span>
+                      
+                      <div v-if="item.authorId === auth.user?.id" class="post-actions-menu">
+                        <button class="action-btn-minimal" @click="startEditPost(item)" title="Edit">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                        </button>
+                        <button class="action-btn-minimal text-red" @click="requestDelete('post', item.id)" title="Delete">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon-danger" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="post-body">
+                      <p>{{ item.content }}</p>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- MEMBER LOGS -->
+              <template v-else>
+                <div class="training-log-card feed-log-card glass-card">
+                  <div class="log-card-top">
+                    <div class="log-author-info">
+                      <img v-if="item.avatarUrl" :src="item.avatarUrl" class="avatar avatar-sm object-cover" />
+                      <div v-else class="avatar avatar-sm avatar-placeholder">{{ getInitials(item.displayName) }}</div>
+                      <div>
+                        <h4 class="post-author-name">{{ item.displayName }}</h4>
+                        <div class="log-stats-inline mt-1">
+                          <span v-if="item.weightLbs" class="log-pill weight"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> {{ item.weightLbs }} lbs</span>
+                          <span v-if="item.calories" class="log-pill energy"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg> {{ item.calories }} cal</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div v-if="item.userId === auth.user?.id" class="log-actions-menu">
+                       <button class="action-btn-minimal" @click="activeTab = 'progress'; startEditLog(item)" title="Edit">
+                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                       </button>
+                    </div>
                   </div>
+                  
+                  <div v-if="item.photoUrls?.length > 0" class="log-galleria-mt">
+                    <div v-for="(url, idx) in item.photoUrls" :key="idx" class="galleria-item" @click="openPreview(item.photoUrls, idx)">
+                       <img :src="url" loading="lazy"/>
+                    </div>
+                  </div>
+                  
+                  <p v-if="item.notes" class="log-story">{{ item.notes }}</p>
                 </div>
-                <span class="post-type-tag" :class="post.postType.toLowerCase()">{{ post.postType }}</span>
-                
-                <div v-if="post.authorId === auth.user?.id" class="post-actions-menu">
-                  <button class="action-btn-minimal" @click="startEditPost(post)" title="Edit">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                  </button>
-                  <button class="action-btn-minimal text-red" @click="requestDelete('post', post.id)" title="Delete">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon-danger" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                  </button>
-                </div>
-              </div>
-              <div class="post-body">
-                <p>{{ post.content }}</p>
-              </div>
-            </template>
+              </template>
+            </div>
           </div>
         </div>
 
         <!-- ═══════════════ LEADERBOARD TAB ═══════════════ -->
         <div v-if="activeTab === 'leaderboard'" class="tab-content animate-in">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-bold font-heading text-white">My Progress & Rankings</h2>
+          </div>
+
           <div class="leaderboard-list mt-2">
             <div v-for="entry in groups.leaderboard" :key="entry.userId" class="leaderboard-row glass-card" :class="{ 'self-row': entry.userId === auth.user?.id }">
               <div class="lb-rank-col">
@@ -478,6 +609,26 @@ const formatDate = (d) => {
               </div>
             </div>
           </div>
+          
+          <div class="mt-8">
+            <div class="flex justify-between items-center mb-6">
+              <h2 class="text-xl font-bold font-heading text-white">Activity Calendar</h2>
+              
+              <div class="calendar-user-select relative">
+                <select v-model="selectedCalendarUser" class="form-input bg-dark border-white/10 py-1.5 pl-3 pr-8 rounded-lg text-sm font-bold min-w-[160px] text-white appearance-none cursor-pointer focus:border-lime focus:ring-1 focus:ring-lime/50">
+                  <option v-for="member in groups.members" :key="member.userId" :value="member.userId">
+                    {{ member.displayName }} {{ member.userId === auth.user?.id ? '(Me)' : '' }}
+                  </option>
+                </select>
+              </div>
+            </div>
+            
+            <LeaderboardCalendar 
+              :logs="calendarLogs" 
+              :targets="calendarTargets" 
+              :groupStartDate="groups.currentGroup.startDate"
+            />
+          </div>
         </div>
 
         <!-- ═══════════════ MY PROGRESS TAB ═══════════════ -->
@@ -503,7 +654,7 @@ const formatDate = (d) => {
 
           <div class="progress-section-header mt-8">
              <h2>Training Logs</h2>
-             <button class="btn btn-primary btn-sm" @click="showLogModal = true">+ New Log</button>
+             <button class="btn btn-primary btn-sm" @click="groups.logModalMode = 'log'; groups.showLogModal = true">+ New Log</button>
           </div>
           
           <div v-if="groups.logs.length === 0" class="empty-state">
@@ -609,7 +760,8 @@ const formatDate = (d) => {
           <div class="member-manage-list mt-4 grid gap-4">
             <div v-for="member in groups.members" :key="member.userId" class="member-manage-card glass-card flex items-center justify-between p-4">
                <div class="flex items-center gap-4">
-                  <div class="avatar avatar-md avatar-placeholder">{{ getInitials(member.displayName) }}</div>
+                  <img v-if="member.avatarUrl" :src="member.avatarUrl" class="avatar avatar-md object-cover" />
+                  <div v-else class="avatar avatar-md avatar-placeholder">{{ getInitials(member.displayName) }}</div>
                   <div>
                      <h4 class="font-bold text-lg leading-tight">{{ member.displayName }}</h4>
                      <div class="text-sm mt-1">
@@ -618,17 +770,17 @@ const formatDate = (d) => {
                   </div>
                </div>
                
-               <div class="flex items-center gap-6">
-                 <div class="text-right hidden sm:block">
+               <div class="flex items-center gap-4 sm:gap-6">
+                 <div class="text-right">
                    <div class="text-xs text-muted uppercase tracking-wider font-bold">Goal</div>
-                   <div class="font-heading font-bold text-lg text-secondary">{{ member.startWeight }} → <span class="text-lime">{{ member.goalWeight }}</span></div>
+                   <div class="font-heading font-bold text-sm sm:text-lg text-secondary">{{ member.startWeight }} → <span class="text-lime">{{ member.goalWeight }}</span></div>
                  </div>
-                 <div class="member-radial-progress text-center relative w-12 h-12 flex-shrink-0">
-                    <svg viewBox="0 0 36 36" class="circular-chart-xs w-full h-full drop-shadow-lg">
+                 <div class="member-radial-progress relative w-12 h-12 flex-shrink-0 flex items-center justify-center">
+                    <svg viewBox="0 0 36 36" class="circular-chart-xs absolute inset-0 w-full h-full drop-shadow-lg">
                        <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
                        <path class="circle" :style="{ strokeDasharray: Math.min(100, Math.max(0, member.progressPercent)) + ', 100' }" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
                     </svg>
-                    <div class="absolute inset-0 flex items-center justify-center text-[10px] font-bold">{{ Math.round(member.progressPercent) }}%</div>
+                    <div class="relative z-10 text-[10px] font-bold mt-[1px]">{{ Math.round(member.progressPercent) }}%</div>
                  </div>
                </div>
             </div>
@@ -639,19 +791,37 @@ const formatDate = (d) => {
         <div v-if="activeTab === 'settings'" class="tab-content animate-in">
           <div class="settings-group glass-card">
             <h3>Invite Teammates</h3>
-            <p class="text-secondary text-sm mb-4">Grow your squad and boost motivation.</p>
-            <div class="flex gap-3">
-              <input v-model="inviteEmail" class="form-input" placeholder="teammate@email.com" />
-              <button class="btn btn-primary" @click="handleInvite">Send</button>
+            <p class="text-secondary text-sm mb-4">Grow your squad and boost motivation by generating a shareable link.</p>
+            <div>
+              <button class="btn btn-primary" @click="handleInvite">Generate Invite Link</button>
             </div>
             
             <div v-if="inviteError" class="error-msg-inline mt-4">{{ inviteError }}</div>
             
             <div v-if="inviteResult" class="invite-success-box mt-4">
-              <span class="text-lime block mb-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="inline-block mr-1 text-lime" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Link ready for {{ inviteResult.inviteEmail || 'them' }}:</span>
+              <span class="text-lime block mb-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="inline-block mr-1 text-lime" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Shareable link generated:</span>
               <div class="flex gap-2">
                 <code class="invite-code flex-grow">{{ inviteLink }}</code>
                 <button class="btn btn-secondary btn-sm" @click="copyInvite">Copy</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-group glass-card mt-6">
+            <h3>Group Members</h3>
+            <div class="member-manage-list mt-4 grid gap-3">
+              <div v-for="member in groups.members" :key="member.userId" class="member-manage-card flex items-center justify-between p-3 bg-dark/30 rounded-lg">
+                 <div class="flex items-center gap-3">
+                    <img v-if="member.avatarUrl" :src="member.avatarUrl" class="avatar avatar-sm object-cover" />
+                    <div v-else class="avatar avatar-sm avatar-placeholder">{{ getInitials(member.displayName) }}</div>
+                    <div>
+                       <h4 class="font-bold leading-tight">{{ member.displayName }}</h4>
+                       <span class="badge" :class="member.role === 'COACH' ? 'badge-amber' : 'badge-teal'" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">{{ member.role }}</span>
+                    </div>
+                 </div>
+                 <div v-if="isCoach && member.userId !== auth.user?.id">
+                   <button class="btn btn-secondary btn-sm text-coral border-coral/30 hover:bg-coral hover:text-white" @click="groups.removeMember(groupId, member.userId)">Kick</button>
+                 </div>
               </div>
             </div>
           </div>
@@ -680,9 +850,9 @@ const formatDate = (d) => {
 
       <!-- ═══════════════ LOG MODAL ═══════════════ -->
       <Teleport to="body">
-        <div v-if="showLogModal" class="modal-backdrop-blur" @click.self="showLogModal = false">
+        <div v-if="groups.showLogModal" class="modal-backdrop-blur" @click.self="groups.showLogModal = false">
           <div class="modal-premium glass-card animate-scale">
-            <h2 class="modal-headline">LOG ACTIVITY</h2>
+            <h2 class="modal-headline">{{ groups.logModalMode === 'note' ? 'ADD NOTE' : 'LOG ACTIVITY' }}</h2>
             
             <div class="grid grid-cols-2 gap-6 mt-6">
               <div class="form-group">
@@ -916,6 +1086,10 @@ const formatDate = (d) => {
   position: relative;
   transition: all 0.3s ease;
 }
+
+.feed-item{
+  margin-bottom: 16px;
+}
 .post-card-premium::before {
   content: '';
   position: absolute; top: 0; left: 0;
@@ -947,6 +1121,23 @@ const formatDate = (d) => {
 
 .post-actions-menu { display: flex; gap: 4px; flex-shrink: 0; }
 .post-body { color: var(--text-secondary); line-height: 1.7; font-size: 0.95rem; }
+
+/* ── FEED ENHANCEMENTS ── */
+.feed-section { position: relative; }
+.date-header-premium {
+  display: flex; align-items: center; gap: 16px; position: sticky; top: 0;
+  background: var(--bg-primary); z-index: 20; padding: 12px 0;
+  margin-top: -12px; /* Offset padding to align with flow */
+}
+.date-text {
+  font-family: var(--font-heading); font-weight: 900; font-size: 0.9rem;
+  text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent-lime);
+  white-space: nowrap;
+}
+.date-line { height: 1px; flex-grow: 1; background: linear-gradient(90deg, rgba(217,255,77,0.2), transparent); }
+
+.feed-log-card { border-left: 4px solid var(--accent-lime) !important; }
+.log-author-info { display: flex; align-items: center; gap: 12px; }
 
 /* ── LEADERBOARD ── */
 .leaderboard-list { display: flex; flex-direction: column; gap: 10px; }
@@ -1083,6 +1274,16 @@ const formatDate = (d) => {
   color: var(--text-secondary); line-height: 1.7; font-size: 0.9rem;
   background: rgba(255,255,255,0.02); padding: 16px; border-radius: 12px;
   border-left: 3px solid rgba(255,255,255,0.08);
+}
+.form-input{
+  background:#080808;
+}
+option{
+  font-weight: 700;
+}
+
+.calendar-user-select{
+  margin-bottom: 10px;
 }
 
 /* ── ACTIONS ── */

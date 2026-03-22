@@ -10,7 +10,10 @@ export const useGroupStore = defineStore('groups', {
     posts: [],
     targets: [],
     logs: [],
-    loading: false
+    allLogs: [],
+    loading: false,
+    showLogModal: false,
+    logModalMode: 'log' // 'log' or 'note'
   }),
 
   actions: {
@@ -52,6 +55,11 @@ export const useGroupStore = defineStore('groups', {
       }
     },
 
+    async removeMember(groupId, userId) {
+      await api.delete(`/groups/${groupId}/members/${userId}`)
+      this.members = this.members.filter(m => m.userId !== userId)
+    },
+
     async fetchMembers(groupId) {
       const { data } = await api.get(`/groups/${groupId}/members`)
       this.members = data
@@ -77,6 +85,11 @@ export const useGroupStore = defineStore('groups', {
       this.targets = data
     },
 
+    async getCalendarTargets(groupId, userId) {
+      const { data } = await api.get(`/groups/${groupId}/targets`, { params: { userId } })
+      return data
+    },
+
     async updateTarget(groupId, targetId, targetWeight) {
       const { data } = await api.put(`/groups/${groupId}/targets/${targetId}`, { targetWeight })
       const idx = this.targets.findIndex(t => t.id === targetId)
@@ -90,9 +103,16 @@ export const useGroupStore = defineStore('groups', {
       return data
     },
 
+    async fetchAllLogs(groupId) {
+      const { data } = await api.get(`/groups/${groupId}/logs`)
+      this.allLogs = data
+      return data
+    },
+
     async createLog(groupId, payload) {
       const { data } = await api.post(`/groups/${groupId}/logs`, payload)
       this.logs.unshift(data)
+      this.allLogs.unshift(data)
       return data
     },
 
@@ -100,12 +120,15 @@ export const useGroupStore = defineStore('groups', {
       const { data } = await api.put(`/groups/${groupId}/logs/${logId}`, payload)
       const idx = this.logs.findIndex(l => l.id === logId)
       if (idx !== -1) this.logs[idx] = data
+      const allIdx = this.allLogs.findIndex(l => l.id === logId)
+      if (allIdx !== -1) this.allLogs[allIdx] = data
       return data
     },
 
     async deleteLog(groupId, logId) {
       await api.delete(`/groups/${groupId}/logs/${logId}`)
       this.logs = this.logs.filter(l => l.id !== logId)
+      this.allLogs = this.allLogs.filter(l => l.id !== logId)
     },
 
     async updatePost(groupId, postId, payload) {

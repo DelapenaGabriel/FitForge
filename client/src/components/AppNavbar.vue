@@ -1,13 +1,37 @@
 <script setup>
+import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { useRouter } from 'vue-router'
+import { useGroupStore } from '@/stores/groups'
+import { useRoute, useRouter } from 'vue-router'
 
 const auth = useAuthStore()
+const groups = useGroupStore()
+const route = useRoute()
 const router = useRouter()
 
-const logout = () => {
-  auth.logout()
-  router.push('/login')
+const showPlusMenu = ref(false)
+
+const handlePlusAction = (action) => {
+  showPlusMenu.value = false;
+  if(action === 'create_group') {
+    router.push('/groups/create');
+  } else if(action === 'add_log') {
+    if(route.name === 'GroupDetail') {
+      groups.logModalMode = 'log';
+      groups.showLogModal = true;
+    } else {
+      alert("Please open a group to log an activity.");
+      router.push('/dashboard');
+    }
+  } else if(action === 'add_note') {
+    if(route.name === 'GroupDetail') {
+      groups.logModalMode = 'note';
+      groups.showLogModal = true;
+    } else {
+      alert("Please open a group to add a note.");
+      router.push('/dashboard');
+    }
+  }
 }
 
 const getInitials = (name) => {
@@ -37,9 +61,6 @@ const getInitials = (name) => {
             </div>
             <span class="user-name">{{ auth.user.displayName }}</span>
           </router-link>
-          <button class="logout-btn" @click="logout" title="Logout">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          </button>
         </div>
       </div>
     </div>
@@ -52,11 +73,31 @@ const getInitials = (name) => {
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         <span>Home</span>
       </router-link>
-      <router-link to="/groups/create" class="mobile-nav-item" active-class="active">
-        <div class="nav-plus-circle">
+      <!-- Mobile Plus Button and Popup -->
+      <div class="mobile-nav-item relative">
+        <!-- The Popup Menu -->
+        <transition name="fade-up">
+          <div v-if="showPlusMenu" class="plus-popup-menu">
+            <button class="popup-item" @click="handlePlusAction('add_log')">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-6M9 17l3 3 3-3M21 12H3"/></svg>
+              <span>Add Log</span>
+            </button>
+            <button class="popup-item" @click="handlePlusAction('add_note')">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              <span>Add Note</span>
+            </button>
+            <button class="popup-item" @click="handlePlusAction('create_group')">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span>Create Group</span>
+            </button>
+          </div>
+        </transition>
+
+        <!-- The Plus Button -->
+        <button class="nav-plus-circle" @click="showPlusMenu = !showPlusMenu" :class="{ 'is-active': showPlusMenu }">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </div>
-      </router-link>
+        </button>
+      </div>
       <router-link to="/profile" class="mobile-nav-item" active-class="active">
         <img v-if="auth.user.avatarUrl" :src="auth.user.avatarUrl" alt="Avatar" class="mobile-nav-avatar" />
         <svg v-else xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -118,19 +159,6 @@ const getInitials = (name) => {
   font-weight: 600;
   font-size: 0.9rem;
   color: var(--text-primary);
-}
-
-.logout-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  transition: color 0.3s;
-}
-
-.logout-btn:hover {
-  color: var(--accent-red);
 }
 
 .user-profile-link {
@@ -216,6 +244,7 @@ const getInitials = (name) => {
   width: 48px;
   height: 48px;
   background: var(--gradient-lime);
+  border: none;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -223,6 +252,83 @@ const getInitials = (name) => {
   color: #000;
   box-shadow: 0 4px 15px var(--accent-lime-glow);
   transform: translateY(-4px);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.nav-plus-circle.is-active {
+  transform: translateY(-4px) rotate(45deg);
+  background: rgba(20, 20, 22, 0.95);
+  color: var(--accent-lime);
+  border: 1px solid var(--accent-lime);
+  box-shadow: 0 0 20px rgba(217, 255, 77, 0.2);
+}
+
+.plus-popup-menu {
+  position: absolute;
+  bottom: calc(100% + 20px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 32, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-glass);
+  border-radius: 16px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  z-index: 1010;
+}
+
+.plus-popup-menu::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  margin-left: -6px;
+  width: 12px;
+  height: 12px;
+  background: rgba(30, 30, 32, 0.95);
+  border-bottom: 1px solid var(--border-glass);
+  border-right: 1px solid var(--border-glass);
+  transform: rotate(45deg);
+}
+
+.popup-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.popup-item:hover, .popup-item:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.popup-item svg {
+  color: var(--accent-lime);
+}
+
+.fade-up-enter-active,
+.fade-up-leave-active {
+  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.fade-up-enter-from,
+.fade-up-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 15px) scale(0.9);
 }
 
 @media (max-width: 768px) {

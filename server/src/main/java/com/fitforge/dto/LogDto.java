@@ -22,6 +22,7 @@ public class LogDto {
         private Long id;
         private Long userId;
         private String displayName;
+        private String avatarUrl;
         private LocalDate logDate;
         private BigDecimal weightLbs;
         private Integer calories;

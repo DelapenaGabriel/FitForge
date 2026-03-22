@@ -99,12 +99,15 @@ public class LogService {
     }
 
     private LogDto.LogResponse toResponse(DailyLog log) {
-        String displayName = userDao.findById(log.getUserId())
-                .map(User::getDisplayName).orElse("Unknown");
+        User user = userDao.findById(log.getUserId()).orElse(null);
+        String displayName = user != null ? user.getDisplayName() : "Unknown";
+        String avatarUrl = user != null ? user.getAvatarUrl() : null;
+
         return LogDto.LogResponse.builder()
                 .id(log.getId())
                 .userId(log.getUserId())
                 .displayName(displayName)
+                .avatarUrl(avatarUrl)
                 .logDate(log.getLogDate())
                 .weightLbs(log.getWeightLbs())
                 .calories(log.getCalories())
