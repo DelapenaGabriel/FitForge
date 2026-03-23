@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS daily_logs (
     weight_lbs      NUMERIC(6,2),
     calories        INTEGER,
     notes           TEXT,
+    pinned          BOOLEAN NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(user_id, group_id, log_date)
 );
@@ -82,6 +83,30 @@ CREATE TABLE IF NOT EXISTS group_invites (
     expires_at      TIMESTAMP NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS post_media (
+    id              BIGSERIAL PRIMARY KEY,
+    post_id         BIGINT NOT NULL REFERENCES coach_posts(id) ON DELETE CASCADE,
+    media_url       VARCHAR(500) NOT NULL,
+    media_type      VARCHAR(20) NOT NULL DEFAULT 'IMAGE',
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS post_comments (
+    id              BIGSERIAL PRIMARY KEY,
+    post_id         BIGINT NOT NULL REFERENCES coach_posts(id) ON DELETE CASCADE,
+    author_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content         TEXT NOT NULL,
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS log_comments (
+    id              BIGSERIAL PRIMARY KEY,
+    log_id          BIGINT NOT NULL REFERENCES daily_logs(id) ON DELETE CASCADE,
+    author_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content         TEXT NOT NULL,
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id);
@@ -90,3 +115,6 @@ CREATE INDEX IF NOT EXISTS idx_daily_logs_date ON daily_logs(log_date);
 CREATE INDEX IF NOT EXISTS idx_weekly_targets_group_user ON weekly_targets(group_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_coach_posts_group ON coach_posts(group_id);
 CREATE INDEX IF NOT EXISTS idx_group_invites_token ON group_invites(token);
+CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id);
+CREATE INDEX IF NOT EXISTS idx_post_comments_post ON post_comments(post_id);
+CREATE INDEX IF NOT EXISTS idx_log_comments_log ON log_comments(log_id);

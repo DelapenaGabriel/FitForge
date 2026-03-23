@@ -13,6 +13,7 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.util.List;
 import java.util.Optional;
+import com.fitforge.model.LogComment;
 
 @Repository
 public class DailyLogDao {
@@ -33,7 +34,9 @@ public class DailyLogDao {
                 .weightLbs(rs.getBigDecimal("weight_lbs"))
                 .calories(rs.getObject("calories", Integer.class))
                 .notes(rs.getString("notes"))
+                .pinned(rs.getBoolean("pinned"))
                 .photoUrls(fetchPhotosForLog(id))
+                .comments(fetchCommentsForLog(id))
                 .createdAt(rs.getTimestamp("created_at").toLocalDateTime())
                 .build();
     };
@@ -43,13 +46,24 @@ public class DailyLogDao {
                 (rs, rowNum) -> rs.getString("photo_url"), logId);
     }
 
+    private List<LogComment> fetchCommentsForLog(Long logId) {
+        return jdbc.query("SELECT * FROM log_comments WHERE log_id = ? ORDER BY created_at ASC",
+                (rs, rowNum) -> LogComment.builder()
+                        .id(rs.getLong("id"))
+                        .logId(rs.getLong("log_id"))
+                        .authorId(rs.getLong("author_id"))
+                        .content(rs.getString("content"))
+                        .createdAt(rs.getTimestamp("created_at").toLocalDateTime())
+                        .build(), logId);
+    }
+
     public DailyLog create(DailyLog log) {
         KeyHolder kh = new GeneratedKeyHolder();
         
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
-                "INSERT INTO daily_logs (user_id, group_id, log_date, weight_lbs, calories, notes) " +
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO daily_logs (user_id, group_id, log_date, weight_lbs, calories, notes, pinned) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 Statement.RETURN_GENERATED_KEYS);
             ps.setLong(1, log.getUserId());
             ps.setLong(2, log.getGroupId());
@@ -61,6 +75,7 @@ public class DailyLogDao {
                 ps.setNull(5, Types.INTEGER);
             }
             ps.setString(6, log.getNotes());
+            ps.setBoolean(7, log.isPinned());
             return ps;
         }, kh);
         
@@ -85,7 +100,7 @@ public class DailyLogDao {
 
     public List<DailyLog> findByGroupAndUser(Long groupId, Long userId) {
         return jdbc.query(
-            "SELECT * FROM daily_logs WHERE group_id = ? AND user_id = ? ORDER BY log_date DESC",
+            "SELECT * FROM daily_logs WHERE group_id = ? AND user_id = ? ORDER BY pinned DESC, log_date DESC",
             rowMapper, groupId, userId);
     }
 
@@ -103,8 +118,8 @@ public class DailyLogDao {
 
     public void update(DailyLog log) {
         jdbc.update(
-            "UPDATE daily_logs SET weight_lbs = ?, calories = ?, notes = ? WHERE id = ?",
-            log.getWeightLbs(), log.getCalories(), log.getNotes(), log.getId());
+            "UPDATE daily_logs SET weight_lbs = ?, calories = ?, notes = ?, pinned = ? WHERE id = ?",
+            log.getWeightLbs(), log.getCalories(), log.getNotes(), log.isPinned(), log.getId());
         savePhotos(log.getId(), log.getPhotoUrls());
     }
 

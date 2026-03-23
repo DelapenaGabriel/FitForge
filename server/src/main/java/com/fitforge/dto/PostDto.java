@@ -1,38 +1,33 @@
 package com.fitforge.dto;
 
 import lombok.*;
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-public class LogDto {
+public class PostDto {
 
     @Data
-    public static class CreateRequest {
-        private BigDecimal weightLbs;
-        private Integer calories;
-        private String notes;
+    public static class PostRequest {
+        private String content;
+        private String postType;
         private List<String> photoUrls;
-        private boolean pinned;
+        private List<String> videoUrls;
     }
 
     @Data
     @Builder
     @AllArgsConstructor
     @NoArgsConstructor
-    public static class LogResponse {
+    public static class PostResponse {
         private Long id;
-        private Long userId;
-        private String displayName;
-        private String avatarUrl;
-        private LocalDate logDate;
-        private BigDecimal weightLbs;
-        private Integer calories;
-        private String notes;
+        private Long authorId;
+        private String authorName;
+        private String authorAvatar;
+        private String content;
+        private String postType;
         private List<String> photoUrls;
+        private List<String> videoUrls;
         private List<CommentResponse> comments;
-        private boolean pinned;
         private LocalDateTime createdAt;
     }
 

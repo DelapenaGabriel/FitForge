@@ -183,7 +183,8 @@ onUnmounted(() => {
   .nav-btn.next { right: 10px; }
   
   .preview-image {
-    max-width: 100vw;
+    max-width: 100%;
+    max-height: 100%;
   }
 }
 </style>

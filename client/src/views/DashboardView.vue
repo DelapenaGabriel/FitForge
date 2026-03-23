@@ -2,9 +2,16 @@
 import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupStore } from '@/stores/groups'
+import quotes from '@/stores/quotes'
 
 const auth = useAuthStore()
 const groups = useGroupStore()
+
+const dailyQuote = computed(() => {
+  // Use days since epoch to change the quote once per day
+  const dayIndex = Math.floor(Date.now() / (1000 * 60 * 60 * 24))
+  return quotes[dayIndex % quotes.length]
+})
 
 const activeFilter = ref('all')
 
@@ -75,30 +82,38 @@ const getInitials = (name) => {
 
       <!-- Featured Plan style from inspo -->
       <section class="featured-section animate-in animate-in-delay-1">
-        <div class="featured-card">
-          <div class="featured-content">
-            <span class="featured-label">Daily Challenge</span>
-            <h2 class="featured-title">Transformation Goal</h2>
-            <div class="featured-stats">
-              <span class="stat-item">Active</span>
-              <span class="divider">•</span>
-              <span class="stat-item">{{ groups.groups.length }} Groups</span>
+        <div class="featured-card flex justify-between items-center px-8 py-8 md:px-10">
+          
+          <!-- LEFT SIDE: Info + Motivation -->
+          <div class="featured-content flex flex-col gap-8 w-full">
+            <div class="flex justify-between items-start">
+              <div>
+                <span class="featured-label">Daily Motivation</span>
+                <h2 class="featured-title">Keep Forging Ahead</h2>
+                <div class="featured-stats">
+                  <span class="stat-item">Active</span>
+                  <span class="divider">•</span>
+                  <span class="stat-item">{{ groups.groups.length }} Groups</span>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Motivational Quote -->
+            <!-- Motivational Quote -->
+            <div class="relative py-2 mt-10 w-full max-w-3xl">
+              
+              <div class="relative z-10 flex flex-col pt-3 gap-4">
+                <p class="text-2xl md:text-3xl lg:text-[2rem] font-serif italic text-black/90 tracking-tight leading-snug">
+                  " {{ dailyQuote.quote }} "
+                </p>
+                <div class="flex items-center gap-3 text-black/70 font-bold uppercase tracking-[0.15em] text-[0.75rem]">
+                  <div class="w-8 h-[2px] bg-black/20"></div>
+                  - {{ dailyQuote.author }}
+                </div>
+              </div>
             </div>
           </div>
-          <div class="featured-progress">
-             <div class="circular-progress-container">
-                <svg viewBox="0 0 36 36" class="circular-chart">
-                  <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-                  <path class="circle" :stroke-dasharray="`${averageProgress}, 100`" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-                </svg>
-                <div class="progress-text">{{ averageProgress }}%</div>
-             </div>
-          </div>
-          <div class="absolute bottom-6 left-6">
-            <router-link to="/groups/create" class="btn-create-floating">
-               <span class="text-black text-2xl font-bold">+</span>
-            </router-link>
-          </div>
+          
         </div>
       </section>
 
@@ -292,6 +307,7 @@ const getInitials = (name) => {
   gap: 8px;
   font-weight: 600;
   font-size: 1rem;
+  margin-bottom: 10px;
 }
 
 .divider { opacity: 0.4; }

@@ -180,7 +180,7 @@
 .post-type-tag.announcement { background: rgba(179,153,255,0.1); color: var(--accent-purple); }
 
 .post-actions-menu { display: flex; gap: 4px; flex-shrink: 0; }
-.post-body { color: var(--text-secondary); line-height: 1.7; font-size: 0.95rem; }
+.post-body { color: var(--text-secondary); line-height: 1.7; font-size: 0.95rem; white-space: pre-wrap; }
 
 /* ── LEADERBOARD ── */
 .leaderboard-list { display: flex; flex-direction: column; gap: 10px; }
@@ -317,6 +317,7 @@
   color: var(--text-secondary); line-height: 1.7; font-size: 0.9rem;
   background: rgba(255,255,255,0.02); padding: 16px; border-radius: 12px;
   border-left: 3px solid rgba(255,255,255,0.08);
+  white-space: pre-wrap;
 }
 
 /* ── ACTIONS ── */
@@ -329,6 +330,8 @@
 .action-btn-minimal:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.15); }
 .action-btn-minimal:hover .action-icon { stroke: var(--accent-lime); }
 .action-btn-minimal:hover .action-icon-danger { stroke: var(--accent-coral); }
+
+
 
 /* ── EDIT UI ── */
 .edit-ui-container { padding: 4px 0; }

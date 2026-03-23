@@ -30,7 +30,10 @@ const goToToday = () => {
 
 const parseDate = (d) => {
   if (!d) return new Date();
-  if (typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}$/)) {
+  if (Array.isArray(d)) {
+    return new Date(d[0], d[1] - 1, d[2] || 1);
+  }
+  if (typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}/)) {
     const [y, m, day] = d.split('-').map(Number);
     return new Date(y, m - 1, day);
   }
@@ -50,12 +53,37 @@ const logMap = computed(() => {
 
 const targetMap = computed(() => {
   const startDate = parseDate(props.groupStartDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   
   return props.targets.map(target => {
     const targetDate = new Date(startDate);
     targetDate.setDate(targetDate.getDate() + (target.weekNumber * 7));
-    return { ...target, _date: targetDate };
+    
+    // Determine status: 'met', 'missed', or 'pending'
+    let status = 'pending';
+    
+    // Evaluate only if due date has passed
+    if (targetDate < today) {
+      if (target.actualWeight != null) {
+        status = target.actualWeight <= target.targetWeight ? 'met' : 'missed';
+      } else {
+        status = 'missed';
+      }
+    }
+    
+    return { ...target, _date: targetDate, _status: status };
   });
+});
+
+// Map target dates to date keys for day-cell lookup
+const targetDateMap = computed(() => {
+  const map = {};
+  targetMap.value.forEach(t => {
+    const key = `${t._date.getFullYear()}-${t._date.getMonth() + 1}-${t._date.getDate()}`;
+    map[key] = t;
+  });
+  return map;
 });
 
 const calendarWeeks = computed(() => {
@@ -75,12 +103,14 @@ const calendarWeeks = computed(() => {
     const week = weeks[weeks.length - 1];
     const dateKey = `${currentDay.getFullYear()}-${currentDay.getMonth() + 1}-${currentDay.getDate()}`;
     const log = logMap.value[dateKey];
+    const target = targetDateMap.value[dateKey] || null;
     
     week.days.push({
       date: new Date(currentDay),
       isCurrentMonth: currentDay.getMonth() === currentMonth.value,
       isToday: dateKey === `${new Date().getFullYear()}-${new Date().getMonth() + 1}-${new Date().getDate()}`,
-      log: log
+      log: log,
+      target: target
     });
     
     currentDay.setDate(currentDay.getDate() + 1);
@@ -140,11 +170,20 @@ const calendarWeeks = computed(() => {
             :class="{ 
               'out-of-month': !day.isCurrentMonth,
               'is-today': day.isToday,
-              'has-log': day.log
+              'has-log': day.log,
+              'is-target-due': day.target,
+              'target-met': day.target && day.target._status === 'met',
+              'target-missed': day.target && day.target._status === 'missed'
             }"
           >
             <span class="date-num">{{ day.date.getDate() }}</span>
             
+            <!-- Target due date marker -->
+            <div v-if="day.target" class="day-target-badge" :class="'status-' + day.target._status">
+              <span class="day-target-label">🎯 Goal</span>
+              <span class="day-target-weight">{{ day.target.targetWeight }} lbs</span>
+            </div>
+
             <div v-if="day.log" class="log-content">
               <div class="log-weight">{{ day.log.weightLbs }} <span class="unit">lbs</span></div>
               <div class="log-cals" v-if="day.log.calories">{{ day.log.calories }} cal</div>
@@ -152,13 +191,17 @@ const calendarWeeks = computed(() => {
           </div>
           
           <!-- Goal Cell -->
-          <div class="calendar-cell goal-cell">
+          <div class="calendar-cell goal-cell" :class="{
+            'goal-met': week.goal && week.goal._status === 'met',
+            'goal-missed': week.goal && week.goal._status === 'missed'
+          }">
             <div v-if="week.goal" class="goal-content">
               <div class="goal-label">Week {{ week.goal.weekNumber }} Target</div>
+              <div class="goal-date">Due {{ week.goal._date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }}</div>
               <div class="goal-weight">{{ week.goal.targetWeight }} <span class="unit">lbs</span></div>
-              <div class="goal-actual" v-if="week.goal.actualWeight" :class="week.goal.actualWeight <= week.goal.targetWeight ? 'text-lime' : 'text-coral'">
-                 Act: {{ week.goal.actualWeight }}
-              </div>
+              <div v-if="week.goal._status === 'met'" class="goal-status-badge met">✓ Met</div>
+              <div v-else-if="week.goal._status === 'missed'" class="goal-status-badge missed">✗ Missed</div>
+              <div v-else class="goal-status-badge pending">Pending</div>
             </div>
             <div v-else class="goal-content empty">
               -
@@ -362,11 +405,106 @@ const calendarWeeks = computed(() => {
   color: #fff;
   font-family: var(--font-heading);
 }
+.goal-date {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #8b92a5;
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+}
 .goal-actual {
   font-size: 0.75rem;
   font-weight: 700;
   margin-top: 4px;
 }
+
+/* ── Goal Cell Status Colors ── */
+.goal-cell.goal-met {
+  background: rgba(34, 197, 94, 0.08);
+  border-left-color: rgba(34, 197, 94, 0.5);
+}
+.goal-cell.goal-missed {
+  background: rgba(239, 68, 68, 0.08);
+  border-left-color: rgba(239, 68, 68, 0.5);
+}
+
+.goal-status-badge {
+  margin-top: 6px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.goal-status-badge.met {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+}
+.goal-status-badge.missed {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+.goal-status-badge.pending {
+  color: #8b92a5;
+  background: rgba(255,255,255,0.05);
+}
+
+/* ── Day Cell Target Markers ── */
+.calendar-cell.is-target-due {
+  border: 1px solid rgba(217,255,77,0.2);
+}
+.calendar-cell.target-met {
+  background: rgba(34, 197, 94, 0.06) !important;
+  border-color: rgba(34, 197, 94, 0.35);
+}
+.calendar-cell.target-met::after {
+  background: #22c55e !important;
+}
+.calendar-cell.target-missed {
+  background: rgba(239, 68, 68, 0.06) !important;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.calendar-cell.target-missed::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 2px;
+  background: #ef4444;
+}
+
+.day-target-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+.day-target-badge.status-met {
+  background: rgba(34, 197, 94, 0.1);
+}
+.day-target-badge.status-missed {
+  background: rgba(239, 68, 68, 0.1);
+}
+.day-target-badge.status-pending {
+  background: rgba(217,255,77, 0.08);
+}
+.day-target-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8b92a5;
+}
+.day-target-weight {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--accent-lime);
+  font-family: var(--font-heading);
+}
+.status-met .day-target-weight { color: #22c55e; }
+.status-missed .day-target-weight { color: #ef4444; }
+
 .text-lime { color: var(--accent-lime); }
 .text-coral { color: var(--accent-coral); }
 

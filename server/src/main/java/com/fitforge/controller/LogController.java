@@ -2,11 +2,9 @@ package com.fitforge.controller;
 
 import com.fitforge.dto.LogDto;
 import com.fitforge.service.LogService;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -50,6 +48,23 @@ public class LogController {
             @PathVariable Long groupId, @PathVariable Long logId, Authentication auth) {
         Long userId = (Long) auth.getPrincipal();
         logService.deleteLog(logId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{logId}/comments")
+    public ResponseEntity<LogDto.CommentResponse> addComment(
+            @PathVariable Long groupId, @PathVariable Long logId,
+            @RequestBody LogDto.CommentRequest req, Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return ResponseEntity.ok(logService.addComment(logId, req, userId));
+    }
+
+    @DeleteMapping("/{logId}/comments/{commentId}")
+    public ResponseEntity<Void> deleteComment(
+            @PathVariable Long groupId, @PathVariable Long logId,
+            @PathVariable Long commentId, Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        logService.deleteComment(commentId, userId);
         return ResponseEntity.noContent().build();
     }
 }

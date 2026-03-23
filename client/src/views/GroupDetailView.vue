@@ -99,10 +99,17 @@ const logWeight = ref("");
 const logCalories = ref("");
 const logNotes = ref("");
 const uploadedPhotos = ref([]);
+const uploadedVideos = ref([]);
+const logPinned = ref(false);
 
-const openUploadWidget = () => {
-  if (uploadedPhotos.value.length >= 5) {
-    alert("Maximum 5 photos allowed.");
+const commentText = ref({}); // { 'post-1': '...', 'log-1': '...' }
+
+const openUploadWidget = (type = 'image') => {
+  const isVideo = type === 'video';
+  const currentCount = isVideo ? uploadedVideos.value.length : uploadedPhotos.value.length;
+  
+  if (currentCount >= 5) {
+    alert(`Maximum 5 ${type}s allowed.`);
     return;
   }
 
@@ -110,9 +117,11 @@ const openUploadWidget = () => {
     {
       cloudName: "dilpitidj",
       uploadPreset: "fitforge",
-      sources: ["local", "camera"],
+      sources: ["local", "camera", "url"],
       multiple: true,
-      maxFiles: 5 - uploadedPhotos.value.length,
+      maxFiles: 5 - currentCount,
+      resourceType: isVideo ? 'video' : 'image',
+      clientAllowedFormats: isVideo ? ['mp4', 'mov', 'webm'] : ['jpg', 'png', 'jpeg', 'webp'],
       styles: {
         palette: {
           window: "#1A1A1A",
@@ -133,10 +142,18 @@ const openUploadWidget = () => {
     },
     (error, result) => {
       if (!error && result && result.event === "success") {
-        uploadedPhotos.value.push(result.info.secure_url);
+        if (isVideo) {
+          uploadedVideos.value.push(result.info.secure_url);
+        } else {
+          uploadedPhotos.value.push(result.info.secure_url);
+        }
       }
     },
   );
+};
+
+const removeVideo = (index) => {
+  uploadedVideos.value.splice(index, 1);
 };
 
 const removePhoto = (index) => {
@@ -171,6 +188,7 @@ const editingLog = ref(null);
 const editLogWeight = ref("");
 const editLogCalories = ref("");
 const editLogNotes = ref("");
+const editLogPinned = ref(false);
 
 // Post editing
 const editingPost = ref(null);
@@ -179,6 +197,36 @@ const editPostType = ref("ADVICE");
 
 // Delete confirmation
 const confirmDelete = ref(null); // { type: 'log'|'post', id: Number }
+
+// Group Objective editing
+const editingObjective = ref(false);
+const editObjectiveText = ref("");
+
+const startEditObjective = () => {
+  editObjectiveText.value = groups.currentGroup?.description || "";
+  editingObjective.value = true;
+};
+
+const saveObjective = async () => {
+  if (!groups.currentGroup) return;
+  try {
+    await groups.updateGroup(groupId.value, {
+      name: groups.currentGroup.name,
+      description: editObjectiveText.value,
+      startDate: groups.currentGroup.startDate,
+      endDate: groups.currentGroup.endDate,
+      startWeight: 0, // DTO fields required but not used by this update service really
+      goalWeight: 0
+    });
+    editingObjective.value = false;
+  } catch (error) {
+    console.error("Failed to update group objective:", error);
+    alert(
+      error.response?.data?.message ||
+        "Failed to update group objective. Please try again."
+    );
+  }
+};
 
 onMounted(async () => {
   try {
@@ -204,26 +252,93 @@ const isCoach = computed(() => groups.currentGroup?.myRole === "COACH");
 const handleLog = async () => {
   if (!logWeight.value && !logNotes.value && uploadedPhotos.value.length === 0) return;
 
-  const payload = {
-    weightLbs: logWeight.value ? parseFloat(logWeight.value) : null,
-    calories: logCalories.value ? parseInt(logCalories.value) : null,
-    notes: logNotes.value || null,
-    photoUrls: uploadedPhotos.value,
-  };
+  try {
+    const payload = {
+      weightLbs: logWeight.value ? parseFloat(logWeight.value) : null,
+      calories: logCalories.value ? parseInt(logCalories.value) : null,
+      notes: logNotes.value || null,
+      photoUrls: uploadedPhotos.value,
+      pinned: logPinned.value,
+    };
 
-  await groups.createLog(groupId.value, payload);
-  await groups.fetchLeaderboard(groupId.value);
-  groups.showLogModal = false;
-  logWeight.value = "";
-  logCalories.value = "";
-  logNotes.value = "";
-  uploadedPhotos.value = [];
+    await groups.createLog(groupId.value, payload);
+    await groups.fetchLeaderboard(groupId.value);
+    
+    // Reset form
+    logWeight.value = "";
+    logCalories.value = "";
+    logNotes.value = "";
+    uploadedPhotos.value = [];
+    logPinned.value = false;
+  } catch (error) {
+    console.error("Failed to submit log:", error);
+    alert("Submission failed. Please check your connection and try again.");
+  } finally {
+    groups.showLogModal = false;
+  }
 };
 
 const handlePost = async () => {
-  if (!postContent.value.trim()) return;
-  await groups.createPost(groupId.value, postContent.value, postType.value);
-  postContent.value = "";
+  if (!postContent.value.trim() && uploadedPhotos.value.length === 0 && uploadedVideos.value.length === 0) return;
+  
+  try {
+    const payload = {
+      content: postContent.value,
+      postType: postType.value,
+      photoUrls: [...uploadedPhotos.value],
+      videoUrls: [...uploadedVideos.value]
+    };
+
+    await groups.createPost(groupId.value, payload);
+    
+    postContent.value = "";
+    uploadedPhotos.value = [];
+    uploadedVideos.value = [];
+    postType.value = "ADVICE";
+  } catch (error) {
+    console.error("Failed to submit post:", error);
+    alert(error.response?.data?.message || "Submission failed. Please check your connection and try again.");
+  } finally {
+    if (groups.showLogModal) {
+      groups.showLogModal = false;
+    }
+  }
+};
+
+const linkify = (text) => {
+  if (!text) return "";
+  const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  
+  return text.replace(urlRegex, (url) => {
+    const ytMatch = url.match(ytRegex);
+    if (ytMatch && ytMatch[1]) {
+      return `<div class="youtube-embed" style="margin-top: 12px; border-radius: 12px; overflow: hidden; max-width: 600px;"><iframe width="100%" height="315" src="https://www.youtube.com/embed/${ytMatch[1]}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+    }
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-lime hover:underline font-bold">${url}</a>`;
+  });
+};
+
+const expandedComments = ref({});
+
+const toggleComments = (type, id) => {
+  const key = `${type}-${id}`;
+  expandedComments.value[key] = !expandedComments.value[key];
+};
+
+const submitComment = async (type, id) => {
+  const key = `${type}-${id}`;
+  const content = commentText.value[key];
+  if (!content?.trim()) return;
+
+  if (type === 'post') {
+    await groups.createPostComment(groupId.value, id, content);
+  } else {
+    await groups.createLogComment(groupId.value, id, content);
+  }
+  
+  commentText.value[key] = "";
+  expandedComments.value[key] = true;
 };
 
 const handleInvite = async () => {
@@ -260,22 +375,38 @@ const startEditLog = (log) => {
   editLogCalories.value = log.calories || ''
   editLogNotes.value = log.notes || ''
   uploadedPhotos.value = [...(log.photoUrls || [])]
+  editLogPinned.value = log.pinned || false
 }
 
 const cancelEditLog = () => {
   editingLog.value = null;
   uploadedPhotos.value = []; // Clear photos on cancel
+  editLogPinned.value = false;
 };
 
 const saveEditLog = async (logId) => {
   await groups.updateLog(groupId.value, logId, {
-    weightLbs: parseFloat(editLogWeight.value),
+    weightLbs: editLogWeight.value ? parseFloat(editLogWeight.value) : null,
     calories: editLogCalories.value ? parseInt(editLogCalories.value) : null,
     notes: editLogNotes.value || null,
-    photoUrls: uploadedPhotos.value
+    photoUrls: uploadedPhotos.value,
+    pinned: editLogPinned.value
   })
   editingLog.value = null
   uploadedPhotos.value = []
+  editLogPinned.value = false
+}
+
+const togglePin = async (log) => {
+  await groups.updateLog(groupId.value, log.id, {
+    weightLbs: log.weightLbs,
+    calories: log.calories,
+    notes: log.notes,
+    photoUrls: log.photoUrls,
+    pinned: !log.pinned
+  });
+  groups.logs = await groups.fetchLogs(groupId.value, auth.user?.id);
+  await groups.fetchAllLogs(groupId.value);
 }
 
 // ── Post edit/delete ──
@@ -416,6 +547,51 @@ const groupedFeed = computed(() => {
 
   return Object.entries(grouped).map(([date, items]) => ({ date, items }));
 });
+
+// Robust local date parser — handles "2025-01-05" strings AND [2025,1,5] arrays from Java
+const parseLocalDate = (d) => {
+  if (!d) return null;
+  if (Array.isArray(d)) {
+    return new Date(d[0], d[1] - 1, d[2] || 1);
+  }
+  if (typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}/)) {
+    const [y, m, day] = d.split('-').map(Number);
+    return new Date(y, m - 1, day);
+  }
+  const parsed = new Date(d);
+  return isNaN(parsed) ? null : parsed;
+};
+
+const getTargetDueDate = (weekNumber) => {
+  const d = parseLocalDate(groups.currentGroup?.startDate);
+  if (!d) return null;
+  d.setDate(d.getDate() + weekNumber * 7);
+  return d;
+};
+
+const getTargetDate = (weekNumber) => {
+  const d = getTargetDueDate(weekNumber);
+  if (!d) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+const getTargetStatus = (target) => {
+  const dueDate = getTargetDueDate(target.weekNumber);
+  if (!dueDate) return 'pending';
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  dueDate.setHours(0, 0, 0, 0);
+  
+  // If due date hasn't passed yet, always pending — user still has time
+  if (dueDate >= today) return 'pending';
+  
+  // Due date has passed — now judge the result
+  if (target.actualWeight != null) {
+    return target.actualWeight <= target.targetWeight ? 'met' : 'missed';
+  }
+  return 'missed';
+};
 </script>
 
 <template>
@@ -448,8 +624,36 @@ const groupedFeed = computed(() => {
                 <span class="ov-value">{{ groups.currentGroup.memberCount }} Active</span>
               </div>
             </div>
-            <div class="panel-desc">
-              <p>{{ groups.currentGroup.description }}</p>
+            <div class="panel-desc objective-wrapper">
+              <div v-if="!editingObjective" class="objective-display">
+                <p>{{ groups.currentGroup.description }}</p>
+                <button v-if="isCoach" @click="startEditObjective" class="objective-edit-btn" title="Edit Objective">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                </button>
+              </div>
+              <div v-else class="objective-editor-wrap">
+                <div class="objective-editor-label">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                  Edit Group Objective
+                </div>
+                <div class="objective-editor-glass">
+                  <textarea 
+                    v-model="editObjectiveText" 
+                    class="objective-textarea"
+                    rows="3" 
+                    placeholder="Inspire your group... what's the collective goal?"
+                  ></textarea>
+                  <div class="objective-editor-footer">
+                    <button class="objective-btn-cancel" @click="editingObjective = false">
+                      Cancel
+                    </button>
+                    <button class="objective-btn-save" @click="saveObjective">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </header>
@@ -465,95 +669,295 @@ const groupedFeed = computed(() => {
 
         <!-- ═══════════════ FEED TAB ═══════════════ -->
         <div v-if="activeTab === 'feed'" class="tab-content animate-in">
+          <!-- CREATE POST FORM -->
+          <div class="create-post-wrapper mb-10">
+            <div class="create-post-gradient-border">
+              <div class="create-post-inner">
+                <div class="create-post-header">
+                  <img v-if="auth.user?.avatarUrl" :src="auth.user?.avatarUrl" class="create-post-avatar" />
+                  <div v-else class="create-post-avatar create-post-avatar-placeholder">{{ getInitials(auth.user?.displayName) }}</div>
+                  <div class="create-post-user">
+                    <span class="create-post-name">{{ auth.user?.displayName }}</span>
+                    <span class="create-post-hint">Share an update with your team</span>
+                  </div>
+                </div>
+
+                <div class="create-post-types">
+                  <button v-for="type in ['ADVICE', 'MOTIVATION', 'ANNOUNCEMENT', 'MEMBER_POST']" :key="type"
+                          class="type-pill" :class="[type.toLowerCase(), { active: postType === type }]"
+                          @click="postType = type">
+                    <svg v-if="type === 'ADVICE'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <svg v-if="type === 'MOTIVATION'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+                    <svg v-if="type === 'ANNOUNCEMENT'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+                    <svg v-if="type === 'MEMBER_POST'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    {{ type.replace('_', ' ') }}
+                  </button>
+                </div>
+
+                <div class="create-post-compose">
+                  <textarea v-model="postContent" class="create-post-textarea" placeholder="What's on your mind?" rows="3"></textarea>
+                </div>
+
+                <!-- Media Previews -->
+                <div v-if="uploadedPhotos.length > 0 || uploadedVideos.length > 0" class="create-post-media-preview">
+                   <div v-for="(url, idx) in uploadedPhotos" :key="'p'+idx" class="media-thumb">
+                      <img :src="url"/>
+                      <button class="media-thumb-remove" @click="removePhoto(idx)">×</button>
+                   </div>
+                   <div v-for="(url, idx) in uploadedVideos" :key="'v'+idx" class="media-thumb media-thumb-video">
+                      <video :src="url"></video>
+                      <div class="media-thumb-play">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="m7 4 12 8-12 8V4z"/></svg>
+                      </div>
+                      <button class="media-thumb-remove" @click="removeVideo(idx)">×</button>
+                   </div>
+                </div>
+
+                <!-- Footer: Upload + Send -->
+                <div class="create-post-footer">
+                  <div class="create-post-actions">
+                     <button class="upload-action-btn" @click="openUploadWidget('image')">
+                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                       <span>Photo</span>
+                     </button>
+                     <button class="upload-action-btn" @click="openUploadWidget('video')">
+                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                       <span>Video</span>
+                     </button>
+                  </div>
+                  <button class="create-post-submit" @click="handlePost" :disabled="!postContent.trim() && uploadedPhotos.length === 0 && uploadedVideos.length === 0">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                    Post
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div v-if="groupedFeed.length === 0" class="empty-state">
-            <div class="empty-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline-block"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
-            <p>No activity yet. Keep training hard!</p>
+            <div class="empty-icon" style="font-size:2.5rem; margin-bottom:16px;">✨</div>
+            <p style="font-size:1.1rem;">No activity yet. Be the first to post!</p>
+            <p style="font-size:0.85rem; color:var(--text-muted); margin-top:6px;">Share updates, progress photos, or motivate your team.</p>
           </div>
           
-          <div v-for="section in groupedFeed" :key="section.date" class="feed-section mb-12">
-            <div class="date-header-premium mb-10">
-               <span class="date-text">{{ section.date }}</span>
-               <div class="date-line"></div>
+          <div v-for="section in groupedFeed" :key="section.date" class="feed-section mb-10">
+            <div class="feed-date-divider">
+               <div class="feed-date-line"></div>
+               <span class="feed-date-badge">{{ section.date }}</span>
+               <div class="feed-date-line"></div>
             </div>
 
             <div v-for="item in section.items" :key="item.feedType + item.id" class="feed-item mb-10">
               <!-- COACH POSTS -->
               <template v-if="item.feedType === 'post'">
-                <div class="post-card-premium glass-card">
-                  <template v-if="editingPost === item.id">
-                    <div class="edit-ui-container">
-                      <div class="form-group">
-                        <select v-model="editPostType" class="form-input">
-                          <option value="ADVICE">Advice</option>
-                          <option value="MOTIVATION">Motivation</option>
-                          <option value="ANNOUNCEMENT">Announcement</option>
-                        </select>
-                      </div>
-                      <textarea v-model="editPostContent" class="form-input" rows="3"></textarea>
-                      <div class="flex justify-end gap-3 mt-4">
-                        <button class="btn btn-secondary btn-sm" @click="cancelEditPost">Cancel</button>
-                        <button class="btn btn-primary btn-sm" @click="saveEditPost(item.id)">Update</button>
-                      </div>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <div class="post-header-top">
-                      <div class="post-author">
-                        <img v-if="item.authorAvatar" :src="item.authorAvatar" class="avatar avatar-sm object-cover" />
-                        <div v-else class="avatar avatar-sm avatar-placeholder">{{ getInitials(item.authorName) }}</div>
-                        <div>
-                          <h4 class="post-author-name">{{ item.authorName }}</h4>
-                          <span class="post-timestamp">{{ formatDate(item.createdAt) }}</span>
+                <template v-if="editingPost === item.id">
+                  <!-- EDIT POST — Premium Inline Editor -->
+                  <div class="create-post-wrapper">
+                    <div class="create-post-gradient-border" style="box-shadow: 0 0 40px rgba(217,255,77,0.15);">
+                      <div class="create-post-inner">
+                        <div class="create-post-header" style="justify-content: space-between;">
+                          <div style="display: flex; gap: 12px; align-items: center;">
+                            <img v-if="auth.user?.avatarUrl" :src="auth.user?.avatarUrl" class="create-post-avatar" />
+                            <div v-else class="create-post-avatar create-post-avatar-placeholder">{{ getInitials(auth.user?.displayName) }}</div>
+                            <div class="create-post-user">
+                              <span class="create-post-name">{{ auth.user?.displayName }}</span>
+                              <span class="create-post-hint" style="color: var(--accent-lime); font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                                Editing Post
+                              </span>
+                            </div>
+                          </div>
+                          <button class="action-btn-minimal" @click="cancelEditPost" title="Discard changes">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                          </button>
+                        </div>
+
+                        <div class="create-post-types">
+                          <button v-for="type in ['ADVICE', 'MOTIVATION', 'ANNOUNCEMENT', 'MEMBER_POST']" :key="type"
+                                  class="type-pill" :class="[type.toLowerCase(), { active: editPostType === type }]"
+                                  @click="editPostType = type">
+                            <svg v-if="type === 'ADVICE'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                            <svg v-if="type === 'MOTIVATION'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+                            <svg v-if="type === 'ANNOUNCEMENT'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+                            <svg v-if="type === 'MEMBER_POST'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                            {{ type.replace('_', ' ') }}
+                          </button>
+                        </div>
+
+                        <div class="create-post-compose" style="margin-bottom: 0;">
+                          <textarea v-model="editPostContent" class="create-post-textarea" placeholder="What's on your mind?" rows="4"></textarea>
+                        </div>
+
+                        <div class="create-post-footer" style="justify-content: flex-end; margin-top: 16px;">
+                          <div class="create-post-actions">
+                            <button class="edit-post-discard" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); padding: 8px 16px; border-radius: 20px; font-weight: 700; cursor: pointer; transition: all 0.2s;" @click="cancelEditPost(item)" onmouseover="this.style.color='var(--accent-coral)'; this.style.borderColor='rgba(255,112,67,0.3)'; this.style.background='rgba(255,112,67,0.05)';" onmouseout="this.style.color='var(--text-secondary)'; this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='transparent';">
+                              Discard
+                            </button>
+                            <button class="create-post-submit" @click="saveEditPost(item.id)" :disabled="!editPostContent.trim()">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                              Save
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      <span class="post-type-tag" :class="item.postType.toLowerCase()">{{ item.postType }}</span>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="post-card-premium">
+                    <div class="feed-post-header">
+                      <div class="feed-post-author">
+                        <img v-if="item.authorAvatar" :src="item.authorAvatar" class="feed-avatar" />
+                        <div v-else class="feed-avatar feed-avatar-placeholder">{{ getInitials(item.authorName) }}</div>
+                        <div>
+                          <h4 class="feed-author-name">{{ item.authorName }}</h4>
+                          <span class="feed-timestamp">{{ formatDate(item.createdAt) }}</span>
+                        </div>
+                      </div>
+                      <div class="feed-post-meta">
+                        <span class="feed-type-badge" :class="item.postType.toLowerCase()">{{ item.postType.replace('_', ' ') }}</span>
+                        <div v-if="item.authorId === auth.user?.id || isCoach" class="feed-post-actions">
+                          <button v-if="item.authorId === auth.user?.id" class="action-btn-minimal" @click="startEditPost(item)" title="Edit">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" class="action-icon" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                          </button>
+                          <button class="action-btn-minimal text-red" @click="requestDelete('post', item.id)" title="Delete">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" class="action-icon-danger" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="feed-post-content">
+                      <p v-html="linkify(item.content)" class="feed-post-text"></p>
                       
-                      <div v-if="item.authorId === auth.user?.id" class="post-actions-menu">
-                        <button class="action-btn-minimal" @click="startEditPost(item)" title="Edit">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                        </button>
-                        <button class="action-btn-minimal text-red" @click="requestDelete('post', item.id)" title="Delete">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon-danger" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                      <!-- Photo Gallery -->
+                      <div v-if="item.photoUrls?.length > 0" class="feed-photo-grid" :class="{'single': item.photoUrls.length === 1, 'double': item.photoUrls.length === 2}">
+                        <div v-for="(url, idx) in item.photoUrls" :key="idx" class="feed-photo-item" @click="openPreview(item.photoUrls, idx)">
+                           <img :src="url" loading="lazy"/>
+                           <div class="feed-photo-overlay"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+                        </div>
+                      </div>
+                      <!-- Video Gallery -->
+                      <div v-if="item.videoUrls?.length > 0" class="feed-video-grid">
+                        <div v-for="(url, idx) in item.videoUrls" :key="idx" class="feed-video-item">
+                           <video :src="url" controls preload="metadata"></video>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Comments -->
+                    <div class="feed-comments-section">
+                      <button v-if="item.comments?.length > 0" class="feed-comment-count" @click="toggleComments('post', item.id)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        {{ expandedComments[`post-${item.id}`] ? 'Hide' : 'View' }} {{ item.comments.length }} comment{{ item.comments.length > 1 ? 's' : '' }}
+                      </button>
+                      <div v-if="item.comments?.length > 0 && expandedComments[`post-${item.id}`]" class="feed-comments-list">
+                        <div v-for="comment in item.comments" :key="comment.id" class="feed-comment group">
+                          <img v-if="comment.authorAvatar" :src="comment.authorAvatar" class="feed-comment-avatar" />
+                          <div v-else class="feed-comment-avatar feed-avatar-placeholder">{{ getInitials(comment.authorName) }}</div>
+                          <div class="feed-comment-body">
+                            <div class="feed-comment-meta">
+                              <span class="feed-comment-name">{{ comment.authorName }}</span>
+                              <span class="feed-comment-time">{{ formatDate(comment.createdAt) }}</span>
+                            </div>
+                            <p class="feed-comment-text">{{ comment.content }}</p>
+                          </div>
+                          <button v-if="comment.authorId === auth.user?.id" 
+                                  class="feed-comment-delete"
+                                  @click="groups.deletePostComment(groupId, item.id, comment.id)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div class="feed-comment-input">
+                        <input v-model="commentText[`post-${item.id}`]" 
+                               type="text" 
+                               placeholder="Write a comment..."
+                               @keyup.enter="submitComment('post', item.id)"/>
+                        <button :disabled="!commentText[`post-${item.id}`]?.trim()"
+                                @click="submitComment('post', item.id)">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
                         </button>
                       </div>
                     </div>
-                    <div class="post-body">
-                      <p>{{ item.content }}</p>
-                    </div>
-                  </template>
                 </div>
               </template>
 
+
               <!-- MEMBER LOGS -->
               <template v-else>
-                <div class="training-log-card feed-log-card glass-card">
-                  <div class="log-card-top">
-                    <div class="log-author-info">
-                      <img v-if="item.avatarUrl" :src="item.avatarUrl" class="avatar avatar-sm object-cover" />
-                      <div v-else class="avatar avatar-sm avatar-placeholder">{{ getInitials(item.displayName) }}</div>
-                      <div>
-                        <h4 class="post-author-name">{{ item.displayName }}</h4>
-                        <div class="log-stats-inline mt-1">
-                          <span v-if="item.weightLbs" class="log-pill weight"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> {{ item.weightLbs }} lbs</span>
-                          <span v-if="item.calories" class="log-pill energy"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg> {{ item.calories }} cal</span>
+                <div class="feed-log-card">
+                  <div class="feed-log-left-accent"></div>
+                  <div class="feed-log-body">
+                    <div class="feed-post-header">
+                      <div class="feed-post-author">
+                        <img v-if="item.avatarUrl" :src="item.avatarUrl" class="feed-avatar" />
+                        <div v-else class="feed-avatar feed-avatar-placeholder">{{ getInitials(item.displayName) }}</div>
+                        <div>
+                          <h4 class="feed-author-name">{{ item.displayName }}</h4>
+                          <div class="feed-log-stats">
+                            <span v-if="item.weightLbs" class="feed-log-pill weight">⚖️ {{ item.weightLbs }} lbs</span>
+                            <span v-if="item.calories" class="feed-log-pill energy">🔥 {{ item.calories }} cal</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="feed-post-meta">
+                        <span class="feed-type-badge log">Daily Log</span>
+                        <div v-if="item.userId === auth.user?.id" class="feed-post-actions">
+                           <button class="action-btn-minimal" @click="activeTab = 'progress'; startEditLog(item)" title="Edit">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" class="action-icon" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                           </button>
                         </div>
                       </div>
                     </div>
                     
-                    <div v-if="item.userId === auth.user?.id" class="log-actions-menu">
-                       <button class="action-btn-minimal" @click="activeTab = 'progress'; startEditLog(item)" title="Edit">
-                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                       </button>
+                    <div class="feed-post-content">
+                      <div v-if="item.photoUrls?.length > 0" class="feed-photo-grid" :class="{'single': item.photoUrls.length === 1, 'double': item.photoUrls.length === 2}">
+                        <div v-for="(url, idx) in item.photoUrls" :key="idx" class="feed-photo-item" @click="openPreview(item.photoUrls, idx)">
+                           <img :src="url" loading="lazy"/>
+                           <div class="feed-photo-overlay"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+                        </div>
+                      </div>
+                      
+                      <p v-if="item.notes" class="feed-log-note" v-html="linkify(item.notes)"></p>
+                    </div>
+
+                    <!-- Log Comments -->
+                    <div class="feed-comments-section">
+                      <button v-if="item.comments?.length > 0" class="feed-comment-count" @click="toggleComments('log', item.id)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        {{ expandedComments[`log-${item.id}`] ? 'Hide' : 'View' }} {{ item.comments.length }} comment{{ item.comments.length > 1 ? 's' : '' }}
+                      </button>
+                      <div v-if="item.comments?.length > 0 && expandedComments[`log-${item.id}`]" class="feed-comments-list">
+                        <div v-for="comment in item.comments" :key="comment.id" class="feed-comment group">
+                          <img v-if="comment.authorAvatar" :src="comment.authorAvatar" class="feed-comment-avatar" />
+                          <div v-else class="feed-comment-avatar feed-avatar-placeholder">{{ getInitials(comment.authorName) }}</div>
+                          <div class="feed-comment-body">
+                            <div class="feed-comment-meta">
+                              <span class="feed-comment-name">{{ comment.authorName }}</span>
+                              <span class="feed-comment-time">{{ formatDate(comment.createdAt) }}</span>
+                            </div>
+                            <p class="feed-comment-text">{{ comment.content }}</p>
+                          </div>
+                          <button v-if="comment.authorId === auth.user?.id" 
+                                  class="feed-comment-delete"
+                                  @click="groups.deleteLogComment(groupId, item.id, comment.id)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div class="feed-comment-input">
+                        <input v-model="commentText[`log-${item.id}`]" 
+                               type="text"
+                               placeholder="Write a comment..."
+                               @keyup.enter="submitComment('log', item.id)"/>
+                        <button :disabled="!commentText[`log-${item.id}`]?.trim()"
+                                @click="submitComment('log', item.id)">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  
-                  <div v-if="item.photoUrls?.length > 0" class="log-galleria-mt">
-                    <div v-for="(url, idx) in item.photoUrls" :key="idx" class="galleria-item" @click="openPreview(item.photoUrls, idx)">
-                       <img :src="url" loading="lazy"/>
-                    </div>
-                  </div>
-                  
-                  <p v-if="item.notes" class="log-story">{{ item.notes }}</p>
                 </div>
               </template>
             </div>
@@ -639,11 +1043,23 @@ const groupedFeed = computed(() => {
           </div>
           
           <div class="targets-scroll mt-4">
-            <div v-for="target in groups.targets" :key="target.id" class="target-card-premium glass-card" :class="{ 'current-week': target.actualWeight }">
+            <div v-for="target in groups.targets" :key="target.id" 
+                 class="target-card-premium glass-card" 
+                 :class="{ 
+                   'current-week': target.actualWeight,
+                   'target-status-met': getTargetStatus(target) === 'met',
+                   'target-status-missed': getTargetStatus(target) === 'missed'
+                 }">
               <div class="target-card-top">
                 <span class="target-week-badge">Week {{ target.weekNumber }}</span>
                 <span v-if="target.coachOverride" class="coach-label">Coach Set</span>
+                <span class="target-status-pill" :class="getTargetStatus(target)">
+                  <template v-if="getTargetStatus(target) === 'met'">✓ Met</template>
+                  <template v-else-if="getTargetStatus(target) === 'missed'">✗ Missed</template>
+                  <template v-else>Pending</template>
+                </span>
               </div>
+              <div class="target-due-date">Due {{ getTargetDate(target.weekNumber) }}</div>
               <div class="target-weight-val">{{ target.targetWeight }} <span>lbs</span></div>
               <div class="target-actual-info" :class="{ 'not-logged': !target.actualWeight }">
                 <span v-if="target.actualWeight">Achieved: {{ target.actualWeight }} lbs</span>
@@ -689,6 +1105,10 @@ const groupedFeed = computed(() => {
                     <button v-if="uploadedPhotos.length < 5" class="add-photo-block" @click="openUploadWidget">+</button>
                   </div>
                 </div>
+                <div class="flex items-center gap-2 mt-4">
+                  <input type="checkbox" :id="'pinEdit' + log.id" v-model="editLogPinned" class="form-checkbox h-4 w-4 text-lime cursor-pointer bg-dark border-white/20 rounded">
+                  <label :for="'pinEdit' + log.id" class="cursor-pointer text-sm text-white select-none">Pin this post</label>
+                </div>
                 <div class="flex justify-end gap-3 mt-4">
                   <button class="btn btn-secondary btn-sm" @click="cancelEditLog">Cancel</button>
                   <button class="btn btn-primary btn-sm" @click="saveEditLog(log.id)">Save Changes</button>
@@ -700,12 +1120,19 @@ const groupedFeed = computed(() => {
               <div class="log-card-top">
                 <div class="log-meta">
                   <span class="log-date-tag">{{ formatDate(log.logDate) }}</span>
+                  <span v-if="log.pinned" class="log-pill pinned ml-2 bg-lime/20 text-lime border border-lime/30">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" class="mr-1"><path d="M16 11V6a4 4 0 0 0-8 0v5l-3 4v2h7v6l1 1 1-1v-6h7v-2l-3-4z"/></svg> Pinned
+                  </span>
                   <div class="log-stats-inline">
                     <span v-if="log.weightLbs" class="log-pill weight"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="inline-block mr-1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> {{ log.weightLbs }}</span>
                     <span v-if="log.calories" class="log-pill energy"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="inline-block mr-1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg> {{ log.calories }}</span>
                   </div>
                 </div>
                 <div class="log-actions-menu">
+                   <button class="action-btn-minimal" @click="togglePin(log)" :title="log.pinned ? 'Unpin Post' : 'Pin Post'">
+                     <svg v-if="log.pinned" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon text-lime" stroke="currentColor" stroke-width="2"><path d="m3 14 4-1-1 4"/><path d="m14 3 1 4 4-1"/><path d="m10.5 13.5 6-6"/><path d="M22 2l-7 7"/><path d="m7 5 3.5 3.5 5.5-.5 2 2"/><path d="m19 17-2-2-.5-5.5-3.5-3.5"/></svg>
+                     <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon" stroke="currentColor" stroke-width="2"><path d="M16 11V6a4 4 0 0 0-8 0v5l-3 4v2h7v6l1 1 1-1v-6h7v-2l-3-4z"/></svg>
+                   </button>
                    <button class="action-btn-minimal" @click="startEditLog(log)" title="Edit">
                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" class="action-icon" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                    </button>
@@ -727,30 +1154,8 @@ const groupedFeed = computed(() => {
         </div>
 
         <!-- ═══════════════ COACH TAB ═══════════════ -->
+      
         <div v-if="activeTab === 'coach' && isCoach" class="tab-content animate-in">
-          <div class="coach-post-interface glass-card">
-            <h3 class="flex items-center gap-2 mb-4"><span class="text-lime"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" class="inline-block" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></span> Broadcast to Team</h3>
-            <div class="form-group mb-4">
-              <label>Message Type</label>
-              <div class="custom-radio-group mt-1">
-                <label class="custom-radio" :class="{active: postType === 'ADVICE'}">
-                  <input type="radio" v-model="postType" value="ADVICE" class="hidden"> <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline-block mr-1"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg> Advice
-                </label>
-                <label class="custom-radio" :class="{active: postType === 'MOTIVATION'}">
-                  <input type="radio" v-model="postType" value="MOTIVATION" class="hidden"> <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline-block mr-1"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg> Motivation
-                </label>
-                <label class="custom-radio" :class="{active: postType === 'ANNOUNCEMENT'}">
-                  <input type="radio" v-model="postType" value="ANNOUNCEMENT" class="hidden"> <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline-block"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Announcement
-                </label>
-              </div>
-            </div>
-            <div class="relative">
-              <textarea v-model="postContent" class="form-input h-32 w-full pr-16" placeholder="Share your wisdom..."></textarea>
-              <button class="btn-post-send" @click="handlePost" :disabled="!postContent.trim()">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-              </button>
-            </div>
-          </div>
 
           <div class="progress-section-header mt-8">
              <h2>Team Management</h2>
@@ -851,8 +1256,75 @@ const groupedFeed = computed(() => {
       <!-- ═══════════════ LOG MODAL ═══════════════ -->
       <Teleport to="body">
         <div v-if="groups.showLogModal" class="modal-backdrop-blur" @click.self="groups.showLogModal = false">
-          <div class="modal-premium glass-card animate-scale">
-            <h2 class="modal-headline">{{ groups.logModalMode === 'note' ? 'ADD NOTE' : 'LOG ACTIVITY' }}</h2>
+          <!-- NOTE/POST MODE -->
+          <div v-if="groups.logModalMode === 'note'" class="create-post-wrapper animate-scale" style="margin: auto; width: 100%; max-width: 500px; margin-bottom: 0;">
+            <div class="create-post-gradient-border">
+              <div class="create-post-inner" style="padding: 24px;">
+                <div class="create-post-header" style="justify-content: center; margin-bottom: 20px;">
+                  <h2 class="modal-headline" style="margin-bottom: 0;">ADD POST</h2>
+                </div>
+
+                <!-- Post Type Pills -->
+                <div class="create-post-types">
+                  <button v-for="type in ['ADVICE', 'MOTIVATION', 'ANNOUNCEMENT', 'MEMBER_POST']" :key="type"
+                          class="type-pill" :class="[type.toLowerCase(), { active: postType === type }]"
+                          @click="postType = type">
+                    <svg v-if="type === 'ADVICE'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <svg v-if="type === 'MOTIVATION'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+                    <svg v-if="type === 'ANNOUNCEMENT'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+                    <svg v-if="type === 'MEMBER_POST'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    {{ type.replace('_', ' ') }}
+                  </button>
+                </div>
+
+                <!-- Textarea -->
+                <div class="create-post-compose">
+                  <textarea v-model="postContent" class="create-post-textarea" rows="3" placeholder="What's on your mind?"></textarea>
+                </div>
+
+                <!-- Media Previews -->
+                <div v-if="uploadedPhotos.length > 0 || uploadedVideos.length > 0" class="create-post-media-preview">
+                   <div v-for="(url, idx) in uploadedPhotos" :key="'p'+idx" class="media-thumb">
+                      <img :src="url"/>
+                      <button class="media-thumb-remove" @click="removePhoto(idx)">×</button>
+                   </div>
+                   <div v-for="(url, idx) in uploadedVideos" :key="'v'+idx" class="media-thumb media-thumb-video">
+                      <video :src="url"></video>
+                      <div class="media-thumb-play">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="m7 4 12 8-12 8V4z"/></svg>
+                      </div>
+                      <button class="media-thumb-remove" @click="removeVideo(idx)">×</button>
+                   </div>
+                </div>
+
+
+                <!-- Footer -->
+                <div class="create-post-footer">
+                  <div class="create-post-actions">
+                     <button class="upload-action-btn" @click="openUploadWidget('image')">
+                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                       <span>Photo</span>
+                     </button>
+                     <button class="upload-action-btn" @click="openUploadWidget('video')">
+                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                       <span>Video</span>
+                     </button>
+                  </div>
+                </div>
+                <div class="modal-footer-btns" style="margin-top: 16px;">
+                  <button class="btn btn-secondary w-full" @click="groups.showLogModal = false">Discard</button>
+                  <button class="create-post-submit w-full" style="border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px;" @click="handlePost" :disabled="!postContent.trim() && uploadedPhotos.length === 0 && uploadedVideos.length === 0">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                    Save Post
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- LOG ACTIVITY MODE -->
+          <div v-else class="modal-premium glass-card animate-scale">
+            <h2 class="modal-headline">LOG ACTIVITY</h2>
             
             <div class="grid grid-cols-2 gap-6 mt-6">
               <div class="form-group">
@@ -885,8 +1357,10 @@ const groupedFeed = computed(() => {
             </div>
 
             <div class="modal-footer-btns mt-8">
-              <button class="btn btn-secondary w-full" @click="showLogModal = false">Discard</button>
-              <button class="btn btn-primary w-full" @click="handleLog" :disabled="!logWeight">Confirm Log</button>
+              <button class="btn btn-secondary w-full" @click="groups.showLogModal = false">Discard</button>
+              <button class="btn btn-primary w-full" @click="handleLog" :disabled="!logWeight">
+                Confirm Log
+              </button>
             </div>
           </div>
         </div>
@@ -1035,6 +1509,158 @@ const groupedFeed = computed(() => {
   font-size: 0.95rem;
 }
 
+/* ── OBJECTIVE EDITING ── */
+.objective-wrapper {
+  position: relative;
+}
+
+.objective-display {
+  position: relative;
+  width: 100%;
+}
+
+.objective-edit-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  opacity: 0;
+  padding: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.35);
+  border: 1px solid rgba(255,255,255,0.06);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+
+.objective-display:hover .objective-edit-btn {
+  opacity: 1;
+}
+
+.objective-edit-btn:hover {
+  background: rgba(217,255,77,0.15);
+  color: var(--accent-lime);
+  border-color: rgba(217,255,77,0.3);
+  box-shadow: 0 0 20px rgba(217,255,77,0.15);
+  transform: scale(1.1);
+}
+
+.objective-editor-wrap {
+  width: 100%;
+  animation: editorSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes editorSlideIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.objective-editor-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent-lime);
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+.objective-editor-glass {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.4),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.objective-editor-glass:focus-within {
+  border-color: rgba(217,255,77,0.35);
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.4),
+    0 0 30px rgba(217,255,77,0.08),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.objective-textarea {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.9);
+  resize: none;
+  padding: 20px 20px 56px;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  letter-spacing: 0.015em;
+  font-family: inherit;
+  outline: none;
+}
+
+.objective-textarea::placeholder {
+  color: rgba(255,255,255,0.2);
+  font-style: italic;
+}
+
+.objective-editor-footer {
+  position: absolute;
+  bottom: 12px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.objective-btn-cancel {
+  padding: 6px 16px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.45);
+  border: 1px solid rgba(255,255,255,0.06);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  letter-spacing: 0.03em;
+}
+
+.objective-btn-cancel:hover {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
+  border-color: rgba(255,255,255,0.15);
+}
+
+.objective-btn-save {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 20px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border-radius: 8px;
+  background: var(--accent-lime);
+  color: #111;
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: 0.03em;
+  box-shadow: 0 4px 18px rgba(217,255,77,0.25);
+}
+
+.objective-btn-save:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(217,255,77,0.35);
+  filter: brightness(1.05);
+}
+
 /* ── TABS ── */
 .group-tabs-scroll {
   display: flex;
@@ -1136,7 +1762,6 @@ const groupedFeed = computed(() => {
 }
 .date-line { height: 1px; flex-grow: 1; background: linear-gradient(90deg, rgba(217,255,77,0.2), transparent); }
 
-.feed-log-card { border-left: 4px solid var(--accent-lime) !important; }
 .log-author-info { display: flex; align-items: center; gap: 12px; }
 
 /* ── LEADERBOARD ── */
@@ -1222,11 +1847,18 @@ const groupedFeed = computed(() => {
   box-shadow: 0 4px 20px rgba(217,255,77,0.08);
 }
 
-.target-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.target-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .target-week-badge { font-size: 0.7rem; font-weight: 800; color: var(--accent-lime); text-transform: uppercase; letter-spacing: 0.1em; }
 .coach-label {
   font-size: 0.6rem; background: var(--accent-purple); color: #000;
   padding: 3px 7px; border-radius: 6px; font-weight: 800; text-transform: uppercase;
+}
+.target-due-date {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  letter-spacing: 0.02em;
 }
 .target-weight-val { font-size: 2rem; font-weight: 900; font-family: var(--font-heading); color: #fff; letter-spacing: -0.02em; }
 .target-weight-val span { font-size: 0.85rem; opacity: 0.4; font-weight: 600; }
@@ -1235,6 +1867,40 @@ const groupedFeed = computed(() => {
 .target-actual-info::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-lime); box-shadow: 0 0 6px var(--accent-lime); }
 .target-actual-info.not-logged::before { background: rgba(255,255,255,0.15); box-shadow: none; }
 .target-actual-info.not-logged { color: var(--text-muted); font-style: italic; }
+
+/* ── Target Status Highlighting ── */
+.target-card-premium.target-status-met {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), transparent);
+  box-shadow: 0 4px 20px rgba(34, 197, 94, 0.08);
+}
+.target-card-premium.target-status-missed {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), transparent);
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.08);
+}
+
+.target-status-pill {
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin-left: auto;
+}
+.target-status-pill.met {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+}
+.target-status-pill.missed {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+.target-status-pill.pending {
+  color: #8b92a5;
+  background: rgba(255,255,255,0.05);
+}
 
 /* ── TRAINING LOGS ── */
 .training-log-card {
@@ -1590,5 +2256,304 @@ option{
   .hidden.sm\:block { display: none !important; }
 }
 
+/* ── POST CREATION ── */
+.post-create-card { padding: 24px; border: 1px solid rgba(255,255,255,0.08); }
+.post-create-card:hover { transform: none; background: rgba(255,255,255,0.04); }
+
+/* ── MULTIMEDIA ── */
+.video-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.video-item { aspect-ratio: 16/9; position: relative; }
+.video-item video { width: 100%; height: 100%; }
+
+/* ── COMMENTS ── */
+.comments-area {
+  display: flex;
+  flex-direction: column;
+}
+.comment-item {
+  animation: fadeIn 0.3s ease;
+}
+.comment-item .avatar-xs {
+  width: 28px; height: 28px; border-radius: 50%; font-size: 10px; flex-shrink: 0;
+}
+.comment-input-box {
+  background: rgba(0,0,0,0.2);
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.05);
+  margin-top: 12px;
+}
+.comment-input-box .form-input {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.avatar-xs { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.1); border-radius: 50%; font-weight: 700; color: #fff; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── FEED DATE DIVIDER ── */
+.feed-date-divider {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  margin: 32px 0 24px; opacity: 0.9;
+}
+.feed-date-line {
+  flex-grow: 1; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+}
+.feed-date-badge {
+  font-size: 0.8rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em;
+  color: var(--text-muted); padding: 4px 16px;
+  border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);
+  background: rgba(0,0,0,0.4); backdrop-filter: blur(10px);
+}
+
+/* ── CREATE POST COMPOSE CARD ── */
+.create-post-wrapper {
+  position: relative; border-radius: 24px; margin-bottom: 40px;
+}
+.create-post-gradient-border {
+  padding: 1px; border-radius: 24px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.02) 50%, rgba(255,255,255,0.05) 100%);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+.create-post-inner {
+  background: rgba(15, 15, 15, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-radius: 23px; padding: 20px;
+}
+.create-post-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+}
+.create-post-avatar {
+  width: 44px; height: 44px; border-radius: 50%; object-fit: cover;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.create-post-avatar-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-slate); color: #fff; font-weight: 800;
+}
+.create-post-user { display: flex; flex-direction: column; }
+.create-post-name { font-weight: 700; color: #fff; font-size: 1rem; }
+.create-post-hint { font-size: 0.8rem; color: var(--text-muted); }
+
+.create-post-types {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.type-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 20px; font-size: 0.75rem; font-weight: 700;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-secondary); cursor: pointer; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.type-pill:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.type-pill.active { background: white; color: black; border-color: white; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(255,255,255,0.1); }
+
+/* Theme colors for active type pills */
+.type-pill.advice.active { background: #60A5FA; color: black; border-color: #60A5FA; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2); }
+.type-pill.motivation.active { background: var(--accent-coral); color: white; border-color: var(--accent-coral); box-shadow: 0 4px 12px rgba(255, 112, 67, 0.2); }
+.type-pill.announcement.active { background: #C084FC; color: white; border-color: #C084FC; box-shadow: 0 4px 12px rgba(168, 85, 247, 0.2); }
+.type-pill.member_post.active { background: var(--accent-lime); color: black; border-color: var(--accent-lime); box-shadow: 0 4px 12px rgba(217, 255, 77, 0.2); }
+
+.create-post-compose { margin-bottom: 16px; }
+.create-post-textarea {
+  width: 100%; background: transparent; border: none; color: #fff;
+  font-size: 1.1rem; resize: none; line-height: 1.5; padding: 0;
+}
+.create-post-textarea:focus { outline: none; }
+.create-post-textarea::placeholder { color: rgba(255,255,255,0.2); }
+
+.create-post-media-preview {
+  display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px;
+}
+.media-thumb {
+  position: relative; width: 80px; height: 80px; border-radius: 12px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.media-thumb img, .media-thumb video { width: 100%; height: 100%; object-fit: cover; }
+.media-thumb-video { background: #000; }
+.media-thumb-play {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.3); pointer-events: none;
+}
+.media-thumb-remove {
+  position: absolute; top: 4px; right: 4px; width: 20px; height: 20px;
+  background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%;
+  font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; backdrop-filter: blur(4px); transition: background 0.2s;
+}
+.media-thumb-remove:hover { background: var(--accent-coral); }
+
+.create-post-footer {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.create-post-actions { display: flex; gap: 12px; }
+.upload-action-btn {
+  display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600;
+  color: var(--text-secondary); background: transparent; border: none; cursor: pointer;
+  padding: 8px 12px; border-radius: 12px; transition: all 0.2s;
+}
+.upload-action-btn:hover { background: rgba(255,255,255,0.05); color: #fff; }
+.upload-action-btn svg { stroke: var(--accent-lime); }
+
+.create-post-submit {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--accent-lime); color: #000; font-weight: 800; font-size: 0.95rem;
+  padding: 10px 24px; border-radius: 24px; border: none; cursor: pointer;
+  transition: all 0.3s;
+}
+.create-post-submit:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(217, 255, 77, 0.3); }
+.create-post-submit:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
+
+/* ── UNIVERSAL FEED CARDS ── */
+.feed-item {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 20px; overflow: hidden;
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+.feed-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  border-color: rgba(255,255,255,0.08);
+}
+.feed-post-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 24px 24px 16px;
+}
+.feed-post-author { display: flex; align-items: center; gap: 14px; }
+.feed-avatar {
+  width: 48px; height: 48px; border-radius: 50%; object-fit: cover;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.feed-avatar-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-slate); color: #fff; font-weight: 800; font-size: 1.1rem;
+}
+.feed-author-name { font-weight: 700; color: #fff; font-size: 1.1rem; letter-spacing: -0.01em; margin-bottom: 2px; }
+.feed-timestamp { font-size: 0.8rem; color: var(--text-muted); }
+
+.feed-post-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.feed-type-badge {
+  font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em;
+  padding: 4px 10px; border-radius: 8px; background: rgba(255,255,255,0.1); color: #fff;
+}
+.feed-type-badge.advice { background: rgba(59, 130, 246, 0.15); color: #60A5FA; border: 1px solid rgba(59,130,246,0.3); }
+.feed-type-badge.motivation { background: rgba(255, 112, 67, 0.15); color: var(--accent-coral); border: 1px solid rgba(255,112,67,0.3); }
+.feed-type-badge.announcement { background: rgba(168, 85, 247, 0.15); color: #C084FC; border: 1px solid rgba(168,85,247,0.3); }
+.feed-type-badge.member_post { background: rgba(217, 255, 77, 0.1); color: var(--accent-lime); border: 1px solid rgba(217,255,77,0.2); }
+.feed-type-badge.log { background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid rgba(255,255,255,0.1); }
+
+.feed-post-actions { display: flex; gap: 4px; }
+
+.feed-post-content { padding: 0 24px 24px; }
+.feed-post-text {
+  font-size: 1.05rem; line-height: 1.6; color: rgba(255,255,255,0.9);
+  white-space: pre-wrap; word-break: break-word;
+}
+.feed-log-note {
+  font-size: 1rem; line-height: 1.6; color: var(--text-secondary);
+  background: rgba(0,0,0,0.2); padding: 16px; border-radius: 12px;
+  border-left: 2px solid rgba(255,255,255,0.1); margin-top: 16px;
+}
+
+/* ── FEED LOG STATS ── */
+.feed-log-stats { display: flex; gap: 8px; margin-top: 6px; }
+.feed-log-pill {
+  font-size: 0.8rem; font-weight: 700; padding: 4px 10px; border-radius: 8px;
+  background: rgba(0,0,0,0.3); display: inline-flex; align-items: center;
+}
+.feed-log-pill.weight { color: var(--accent-lime); border: 1px solid rgba(217,255,77,0.1); }
+.feed-log-pill.energy { color: var(--accent-coral); border: 1px solid rgba(255,112,67,0.1); }
+
+.feed-log-card { position: relative; }
+.feed-log-left-accent {
+  position: absolute; left: 0; top: 24px; bottom: 24px; width: 4px;
+  background: var(--accent-lime); border-radius: 0 4px 4px 0; opacity: 0.5;
+}
+
+/* ── FEED MEDIA GALLERIES ── */
+.feed-photo-grid { margin-top: 16px; display: grid; gap: 8px; grid-template-columns: repeat(3, 1fr); border-radius: 16px; overflow: hidden; max-width: 600px; }
+.feed-photo-grid.single { grid-template-columns: 1fr; }
+.feed-photo-grid.double { grid-template-columns: 1fr 1fr; }
+.feed-photo-item { position: relative; aspect-ratio: 1; cursor: pointer; overflow: hidden; }
+.feed-photo-grid.single .feed-photo-item { aspect-ratio: 2/1; max-height: 280px; }
+.feed-photo-grid.double .feed-photo-item { aspect-ratio: 1; max-height: 200px; }
+.feed-photo-item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+.feed-photo-item:hover img { transform: scale(1.05); }
+.feed-photo-overlay {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.4); opacity: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.3s;
+}
+.feed-photo-item:hover .feed-photo-overlay { opacity: 1; }
+
+.feed-video-grid { margin-top: 16px; display: grid; gap: 12px; grid-template-columns: 1fr; max-width: 600px; }
+.feed-video-item { border-radius: 16px; overflow: hidden; background: #000; border: 1px solid rgba(255,255,255,0.05); }
+.feed-video-item video { width: 100%; outline: none; aspect-ratio: 16/9; max-height: 300px; }
+
+/* ── FEED COMMENTS ── */
+.feed-comments-section {
+  background: rgba(0,0,0,0.2); border-top: 1px solid rgba(255,255,255,0.05);
+  padding: 20px 24px;
+}
+button.feed-comment-count {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-size: 0.85rem; font-weight: 700; color: var(--text-muted);
+  display: flex; align-items: center; gap: 6px; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.05em;
+  transition: color 0.2s;
+}
+button.feed-comment-count:hover {
+  color: #fff;
+}
+.feed-comments-list { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
+.feed-comment { display: flex; gap: 12px; }
+.feed-comment-avatar {
+  width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+}
+.feed-comment-body {
+  flex-grow: 1; background: rgba(255,255,255,0.03); padding: 12px 14px; border-radius: 0 16px 16px 16px;
+}
+.feed-comment-meta { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+.feed-comment-name { font-size: 0.9rem; font-weight: 700; color: #fff; }
+.feed-comment-time { font-size: 0.75rem; color: var(--text-muted); }
+.feed-comment-text { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; }
+.feed-comment-delete {
+  opacity: 0; padding: 6px; color: var(--text-muted); background: transparent; border: none; cursor: pointer;
+  transition: opacity 0.2s, color 0.2s; align-self: flex-start; margin-top: 6px;
+}
+.feed-comment:hover .feed-comment-delete { opacity: 1; }
+.feed-comment-delete:hover { color: var(--accent-coral); }
+
+.feed-comment-input {
+  display: flex; gap: 12px; align-items: center;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 20px; padding: 6px 6px 6px 16px;
+  transition: border-color 0.3s, background 0.3s;
+}
+.feed-comment-input:focus-within {
+  border-color: rgba(217,255,77,0.3); background: rgba(255,255,255,0.06);
+}
+.feed-comment-input input {
+  flex-grow: 1; background: transparent; border: none; color: #fff;
+  font-size: 0.95rem; outline: none;
+}
+.feed-comment-input input::placeholder { color: var(--text-muted); }
+.feed-comment-input button {
+  width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--accent-lime); color: #000; border: none; cursor: pointer; transition: transform 0.2s, opacity 0.2s;
+}
+.feed-comment-input button:not(:disabled):hover { transform: scale(1.05); }
+.feed-comment-input button:disabled { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); cursor: not-allowed; }
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .create-post-inner { padding: 16px; }
+  .feed-post-header, .feed-post-content, .feed-comments-section { padding-left: 16px; padding-right: 16px; }
+  .feed-post-actions { position: absolute; top: 16px; right: 16px; }
+  .feed-post-header { flex-direction: column; position: relative; gap: 12px; }
+  .feed-post-meta { align-items: flex-start; }
+}
 </style>
 

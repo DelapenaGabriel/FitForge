@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import api from '@/api'
+import { useAuthStore } from '@/stores/auth'
 
 export const useGroupStore = defineStore('groups', {
   state: () => ({
@@ -39,6 +40,16 @@ export const useGroupStore = defineStore('groups', {
       return data
     },
 
+    async updateGroup(groupId, payload) {
+      const { data } = await api.put(`/groups/${groupId}`, payload)
+      if (this.currentGroup?.id === groupId) {
+        this.currentGroup = data
+      }
+      const idx = this.groups.findIndex(g => g.id === groupId)
+      if (idx !== -1) this.groups[idx] = data
+      return data
+    },
+
     async deleteGroup(groupId) {
       await api.delete(`/groups/${groupId}`)
       this.groups = this.groups.filter(g => g.id !== groupId)
@@ -75,9 +86,27 @@ export const useGroupStore = defineStore('groups', {
       this.posts = data
     },
 
-    async createPost(groupId, content, postType) {
-      const { data } = await api.post(`/groups/${groupId}/posts`, { content, postType })
-      this.posts.unshift(data)
+    async createPost(groupId, payload) {
+      const { data } = await api.post(`/groups/${groupId}/posts`, payload)
+      await this.fetchPosts(groupId)
+    },
+
+    async createPostComment(groupId, postId, content) {
+      const { data } = await api.post(`/groups/${groupId}/posts/${postId}/comments`, { content })
+      const post = this.posts.find(p => p.id === postId)
+      if (post) {
+        if (!post.comments) post.comments = []
+        post.comments.push(data)
+      }
+      return data
+    },
+
+    async deletePostComment(groupId, postId, commentId) {
+      await api.delete(`/groups/${groupId}/posts/${postId}/comments/${commentId}`)
+      const post = this.posts.find(p => p.id === postId)
+      if (post && post.comments) {
+        post.comments = post.comments.filter(c => c.id !== commentId)
+      }
     },
 
     async fetchTargets(groupId, userId) {
@@ -111,8 +140,11 @@ export const useGroupStore = defineStore('groups', {
 
     async createLog(groupId, payload) {
       const { data } = await api.post(`/groups/${groupId}/logs`, payload)
-      this.logs.unshift(data)
-      this.allLogs.unshift(data)
+      await this.fetchAllLogs(groupId)
+      const auth = useAuthStore()
+      if (auth.user?.id) {
+        this.logs = await this.fetchLogs(groupId, auth.user.id)
+      }
       return data
     },
 
@@ -129,6 +161,33 @@ export const useGroupStore = defineStore('groups', {
       await api.delete(`/groups/${groupId}/logs/${logId}`)
       this.logs = this.logs.filter(l => l.id !== logId)
       this.allLogs = this.allLogs.filter(l => l.id !== logId)
+    },
+
+    async createLogComment(groupId, logId, content) {
+      const { data } = await api.post(`/groups/${groupId}/logs/${logId}/comments`, { content })
+      // Helper to update comments in logs and allLogs
+      const updateList = (list) => {
+        const log = list.find(l => l.id === logId)
+        if (log) {
+          if (!log.comments) log.comments = []
+          log.comments.push(data)
+        }
+      }
+      updateList(this.logs)
+      updateList(this.allLogs)
+      return data
+    },
+
+    async deleteLogComment(groupId, logId, commentId) {
+      await api.delete(`/groups/${groupId}/logs/${logId}/comments/${commentId}`)
+      const updateList = (list) => {
+        const log = list.find(l => l.id === logId)
+        if (log && log.comments) {
+          log.comments = log.comments.filter(c => c.id !== commentId)
+        }
+      }
+      updateList(this.logs)
+      updateList(this.allLogs)
     },
 
     async updatePost(groupId, postId, payload) {

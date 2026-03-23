@@ -19,5 +19,7 @@ public class DailyLog {
     private Integer calories;
     private String notes;
     private List<String> photoUrls;
+    private boolean pinned;
+    private List<LogComment> comments;
     private LocalDateTime createdAt;
 }
