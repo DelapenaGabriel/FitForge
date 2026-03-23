@@ -347,7 +347,7 @@ const handleCreate = async () => {
   min-height: 100vh;
   position: relative;
   overflow: hidden;
-  padding-bottom: 120px;
+  padding-bottom: calc(120px + env(safe-area-inset-bottom));
 }
 
 /* ── Ambient Background ── */
@@ -403,7 +403,7 @@ const handleCreate = async () => {
 .create-wrapper {
   max-width: 600px;
   margin: 0 auto;
-  padding-top: 48px;
+  padding-top: max(48px, calc(16px + env(safe-area-inset-top)));
   position: relative;
   z-index: 1;
 }
@@ -652,6 +652,7 @@ const handleCreate = async () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 
 .input-group label {
@@ -681,6 +682,9 @@ const handleCreate = async () => {
   transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   outline: none;
   width: 100%;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .premium-input:hover {
@@ -988,6 +992,8 @@ const handleCreate = async () => {
 
   .card-inner {
     padding: 32px 24px;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .card-top {
@@ -997,6 +1003,13 @@ const handleCreate = async () => {
 
   .dates-grid {
     grid-template-columns: 1fr;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  
+  .premium-input {
+    padding: 14px 16px;
+    font-size: 0.95rem;
   }
 
   .node-circle {

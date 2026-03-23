@@ -107,6 +107,18 @@ CREATE TABLE IF NOT EXISTS log_comments (
     created_at      TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS notifications (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    group_id    BIGINT REFERENCES groups(id) ON DELETE CASCADE,
+    type        VARCHAR(30) NOT NULL,
+    title       VARCHAR(200) NOT NULL,
+    message     TEXT NOT NULL,
+    route       VARCHAR(200),
+    is_read     BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id);
@@ -118,3 +130,4 @@ CREATE INDEX IF NOT EXISTS idx_group_invites_token ON group_invites(token);
 CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id);
 CREATE INDEX IF NOT EXISTS idx_post_comments_post ON post_comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_log_comments_log ON log_comments(log_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);

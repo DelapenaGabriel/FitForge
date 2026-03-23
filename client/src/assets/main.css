@@ -379,7 +379,9 @@ h3 { font-size: 1.25rem; }
 
 .page {
   padding: 32px 0;
-  min-height: calc(100vh - 72px);
+  padding-top: max(32px, calc(16px + env(safe-area-inset-top)));
+  padding-bottom: max(100px, calc(80px + env(safe-area-inset-bottom)));
+  min-height: calc(100vh - 56px);
 }
 
 /* ── Animations ── */
@@ -416,7 +418,7 @@ h3 { font-size: 1.25rem; }
 /* ── Toast ── */
 .toast-container {
   position: fixed;
-  top: 24px;
+  top: max(24px, env(safe-area-inset-top));
   right: 24px;
   z-index: 9999;
   display: flex;

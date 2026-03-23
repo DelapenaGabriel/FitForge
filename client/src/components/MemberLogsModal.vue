@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from "vue";
+import { onMounted, onUnmounted, ref, computed } from "vue";
 import { useGroupStore } from "@/stores/groups";
 import { useAuthStore } from "@/stores/auth";
 
@@ -18,7 +18,39 @@ const groups = useGroupStore();
 const auth = useAuthStore();
 const commentText = ref({}); // { 'log-1': '...' }
 
-const emit = defineEmits(["close", "preview-photo"]);
+const editingGoalWeight = ref(false);
+const editGoalWeightValue = ref("");
+
+const isEditable = computed(() => {
+  return groups.currentGroup?.myRole === 'COACH' || auth.user?.id === props.member.userId;
+});
+
+const startEditGoalWeight = () => {
+  editGoalWeightValue.value = props.member.goalWeight;
+  editingGoalWeight.value = true;
+};
+
+const saveGoalWeight = async () => {
+  if (!editGoalWeightValue.value || isNaN(parseFloat(editGoalWeightValue.value))) return;
+  try {
+    const newWeight = parseFloat(editGoalWeightValue.value);
+    await groups.updateGoalWeight(groups.currentGroup.id, props.member.userId, newWeight);
+    editingGoalWeight.value = false;
+    
+    // Update local member object for immediate UI reaction without refresh
+    if (props.member) {
+      props.member.goalWeight = newWeight;
+    }
+    
+    await groups.fetchTargets(groups.currentGroup.id, props.member.userId);
+    emit("goal-weight-updated", { userId: props.member.userId, newWeight });
+  } catch (error) {
+    console.error("Failed to update goal weight", error);
+    alert(error.response?.data?.message || "Failed to update goal weight. Please try again.");
+  }
+};
+
+const emit = defineEmits(["close", "preview-photo", "goal-weight-updated"]);
 
 const close = () => {
   emit("close");
@@ -33,6 +65,26 @@ const formatDate = (d) => {
     hour: "2-digit",
     minute: "2-digit"
   });
+};
+
+const timeAgo = (d) => {
+  if (!d) return "";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "";
+  const seconds = Math.floor((new Date() - date) / 1000);
+  if (seconds < 60) return "Just now";
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 4) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  const years = Math.floor(days / 365);
+  return `${years}y ago`;
 };
 
 const linkify = (text) => {
@@ -87,7 +139,21 @@ onUnmounted(() => {
             </div>
             <div>
               <h2>{{ member.displayName }}'s Progress</h2>
-              <p class="subtitle">Member logs for this group challenge</p>
+              <div class="subtitle" style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                <span>Goal Weight:</span>
+                <template v-if="!editingGoalWeight">
+                  <span style="font-weight: 700; color: var(--accent-lime); font-size: 1.05rem;">{{ member.goalWeight }} lbs</span>
+                  <button v-if="isEditable" @click="startEditGoalWeight" class="edit-icon-btn" title="Edit Goal Weight">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                  </button>
+                </template>
+                <div v-else style="display: flex; align-items: center; gap: 6px;">
+                  <input type="number" v-model="editGoalWeightValue" class="goal-weight-input" step="0.1" />
+                  <span style="font-size: 0.9rem;">lbs</span>
+                  <button @click="saveGoalWeight" class="save-goal-btn">Save</button>
+                  <button @click="editingGoalWeight = false" class="cancel-goal-btn">Cancel</button>
+                </div>
+              </div>
             </div>
           </div>
           <button class="close-x" @click="close">×</button>
@@ -135,7 +201,7 @@ onUnmounted(() => {
                     <div class="feed-comment-body">
                       <div class="feed-comment-meta">
                         <span class="feed-comment-name">{{ comment.authorName }}</span>
-                        <span class="feed-comment-time">{{ formatDate(comment.createdAt) }}</span>
+                        <span class="feed-comment-time">{{ timeAgo(comment.createdAt) }}</span>
                       </div>
                       <p class="feed-comment-text">{{ comment.content }}</p>
                     </div>
@@ -148,12 +214,12 @@ onUnmounted(() => {
                 </div>
 
                 <div class="feed-comment-input">
-                  <input v-model="commentText[log.id]" 
-                         type="text" 
+                  <textarea v-model="commentText[log.id]" 
                          placeholder="Add a comment..."
-                         @keyup.enter="submitComment(log.id)"/>
+                         rows="1"
+                         @input="(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }"></textarea>
                   <button :disabled="!commentText[log.id]?.trim()"
-                          @click="submitComment(log.id)">
+                          @click="submitComment(log.id); $event.currentTarget.previousElementSibling.style.height = 'auto'">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
                   </button>
                 </div>
@@ -177,6 +243,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  padding-top: max(20px, env(safe-area-inset-top));
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
 }
 
 .modal {
@@ -381,7 +449,7 @@ button.feed-comment-count:hover {
 .feed-comment-meta { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 2px; }
 .feed-comment-name { font-size: 0.85rem; font-weight: 700; color: #fff; }
 .feed-comment-time { font-size: 0.7rem; color: var(--text-muted); }
-.feed-comment-text { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4; }
+.feed-comment-text { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
 .feed-comment-delete {
   opacity: 0; padding: 4px; color: var(--text-muted); background: transparent; border: none; cursor: pointer;
   transition: opacity 0.2s, color 0.2s; align-self: flex-start; margin-top: 4px;
@@ -398,15 +466,78 @@ button.feed-comment-count:hover {
 .feed-comment-input:focus-within {
   border-color: rgba(217,255,77,0.3); background: rgba(255,255,255,0.06);
 }
-.feed-comment-input input {
+.feed-comment-input textarea {
   flex-grow: 1; background: transparent; border: none; color: #fff;
-  font-size: 0.85rem; outline: none;
+  font-size: 0.85rem; outline: none; resize: none; overflow-y: hidden;
+  padding: 6px 0; font-family: inherit; line-height: 1.4; max-height: 120px;
 }
-.feed-comment-input input::placeholder { color: var(--text-muted); }
+.feed-comment-input textarea::placeholder { color: var(--text-muted); }
 .feed-comment-input button {
   width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   background: var(--accent-lime); color: #000; border: none; cursor: pointer; transition: transform 0.2s;
 }
 .feed-comment-input button:not(:disabled):hover { transform: scale(1.05); }
 .feed-comment-input button:disabled { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); margin:0 }
+
+/* ── Inline Edit Goal Weight Styles ── */
+.edit-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+.edit-icon-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: var(--accent-lime);
+}
+
+.goal-weight-input {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border-glass);
+  border-radius: 6px;
+  padding: 2px 8px;
+  width: 70px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.95rem;
+  outline: none;
+}
+.goal-weight-input:focus {
+  border-color: var(--accent-lime);
+}
+
+.save-goal-btn {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--accent-lime);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.save-goal-btn:hover {
+  background: rgba(217,255,77,0.1);
+  border-color: var(--accent-lime);
+}
+
+.cancel-goal-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.cancel-goal-btn:hover {
+  color: #fff;
+}
+
 </style>

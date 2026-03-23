@@ -24,13 +24,15 @@ public class LogService {
     private final UserDao userDao;
     private final com.fitforge.dao.GroupDao groupDao;
     private final com.fitforge.dao.WeeklyTargetDao targetDao;
+    private final NotificationService notificationService;
 
-    public LogService(DailyLogDao logDao, LogCommentDao commentDao, UserDao userDao, com.fitforge.dao.GroupDao groupDao, com.fitforge.dao.WeeklyTargetDao targetDao) {
+    public LogService(DailyLogDao logDao, LogCommentDao commentDao, UserDao userDao, com.fitforge.dao.GroupDao groupDao, com.fitforge.dao.WeeklyTargetDao targetDao, NotificationService notificationService) {
         this.logDao = logDao;
         this.commentDao = commentDao;
         this.userDao = userDao;
         this.groupDao = groupDao;
         this.targetDao = targetDao;
+        this.notificationService = notificationService;
     }
 
     public LogDto.LogResponse createLog(Long groupId, Long userId,
@@ -48,6 +50,17 @@ public class LogService {
         log = logDao.create(log);
         
         updateWeeklyTargetActualWeight(groupId, userId, log.getWeightLbs());
+
+        User author = userDao.findById(userId).orElse(null);
+        String authorName = author != null ? author.getDisplayName() : "Someone";
+        notificationService.notifyGroupMembers(
+            groupId, 
+            userId, 
+            "NEW_LOG", 
+            "New Log", 
+            "⚖️ " + authorName + " logged their weight.", 
+            "/app/groups/" + groupId + "?tab=logs"
+        );
 
         return toResponse(log);
     }
@@ -116,6 +129,20 @@ public class LogService {
                 .content(req.getContent())
                 .build();
         comment = commentDao.create(comment);
+        
+        if (!log.getUserId().equals(userId)) {
+            User author = userDao.findById(userId).orElse(null);
+            String authorName = author != null ? author.getDisplayName() : "Someone";
+            notificationService.notifyUser(
+                log.getUserId(),
+                log.getGroupId(),
+                "NEW_COMMENT",
+                "New Comment",
+                "💬 " + authorName + " commented on your log.",
+                "/app/groups/" + log.getGroupId() + "?tab=logs"
+            );
+        }
+        
         return toCommentResponse(comment);
     }
 

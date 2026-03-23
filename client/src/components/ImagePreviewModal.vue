@@ -83,11 +83,13 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 40px;
+  padding-top: max(40px, env(safe-area-inset-top));
+  padding-bottom: max(40px, env(safe-area-inset-bottom));
 }
 
 .close-btn {
   position: absolute;
-  top: 32px;
+  top: max(32px, env(safe-area-inset-top));
   right: 32px;
   background: var(--bg-glass);
   border: 1px solid var(--border-glass);
@@ -170,6 +172,8 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .lightbox-overlay {
     padding: 20px;
+    padding-top: max(20px, env(safe-area-inset-top));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
   }
   
   .nav-btn {

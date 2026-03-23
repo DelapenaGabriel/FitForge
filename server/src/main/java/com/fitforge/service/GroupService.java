@@ -24,16 +24,18 @@ public class GroupService {
     private final GroupInviteDao inviteDao;
     private final UserDao userDao;
     private final DailyLogDao logDao;
+    private final NotificationService notificationService;
 
     public GroupService(GroupDao groupDao, GroupMemberDao memberDao,
                         WeeklyTargetDao targetDao, GroupInviteDao inviteDao,
-                        UserDao userDao, DailyLogDao logDao) {
+                        UserDao userDao, DailyLogDao logDao, NotificationService notificationService) {
         this.groupDao = groupDao;
         this.memberDao = memberDao;
         this.targetDao = targetDao;
         this.inviteDao = inviteDao;
         this.userDao = userDao;
         this.logDao = logDao;
+        this.notificationService = notificationService;
     }
 
     public GroupDto.GroupResponse createGroup(GroupDto.CreateRequest req, Long userId) {
@@ -169,6 +171,17 @@ public class GroupService {
         generateWeeklyTargets(group, member);
 
         inviteDao.updateStatus(invite.getId(), "ACCEPTED");
+        
+        User joiner = userDao.findById(userId).orElse(null);
+        String joinerName = joiner != null ? joiner.getDisplayName() : "Someone";
+        notificationService.notifyGroupMembers(
+            invite.getGroupId(),
+            userId,
+            "MEMBER_JOINED",
+            "New Member",
+            "👥 " + joinerName + " joined the group!",
+            "/app/groups/" + invite.getGroupId() + "?tab=members"
+        );
 
         return toResponse(group, userId);
     }
@@ -186,6 +199,7 @@ public class GroupService {
                 .groupName(group.getName())
                 .status(invite.getStatus())
                 .alreadyMember(alreadyMember)
+                .endDate(group.getEndDate())
                 .build();
     }
 
@@ -200,6 +214,59 @@ public class GroupService {
     public void updateMemberRole(Long groupId, Long targetUserId, String role, Long requesterId) {
         requireCoach(groupId, requesterId);
         memberDao.updateRole(groupId, targetUserId, role);
+    }
+
+    public void updateMemberGoalWeight(Long groupId, Long targetUserId, BigDecimal newGoalWeight, Long requesterId) {
+        if (!targetUserId.equals(requesterId)) {
+            requireCoach(groupId, requesterId);
+        }
+        GroupMember member = memberDao.findByGroupAndUser(groupId, targetUserId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Member not found"));
+
+        memberDao.updateWeights(groupId, targetUserId, member.getStartWeight(), newGoalWeight);
+        member.setGoalWeight(newGoalWeight);
+
+        Group group = groupDao.findById(groupId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found"));
+        recalculateWeeklyTargets(group, member);
+    }
+
+    private void recalculateWeeklyTargets(Group group, GroupMember member) {
+        if (member.getStartWeight() == null || member.getGoalWeight() == null) return;
+
+        long totalDays = ChronoUnit.DAYS.between(group.getStartDate(), group.getEndDate());
+        int totalWeeks = Math.max(1, (int) (totalDays / 7));
+
+        BigDecimal totalLoss = member.getStartWeight().subtract(member.getGoalWeight());
+        BigDecimal weeklyLoss = totalLoss.divide(BigDecimal.valueOf(totalWeeks), 2, RoundingMode.HALF_UP);
+
+        List<WeeklyTarget> existingTargets = targetDao.findByGroupAndUser(group.getId(), member.getUserId());
+
+        for (int w = 1; w <= totalWeeks; w++) {
+            BigDecimal newTargetWeight = member.getStartWeight()
+                    .subtract(weeklyLoss.multiply(BigDecimal.valueOf(w)));
+
+            int weekNum = w;
+            java.util.Optional<WeeklyTarget> existingTarget = existingTargets.stream()
+                    .filter(t -> t.getWeekNumber() == weekNum)
+                    .findFirst();
+
+            if (existingTarget.isPresent()) {
+                WeeklyTarget t = existingTarget.get();
+                if (!t.isCoachOverride()) {
+                    t.setTargetWeight(newTargetWeight);
+                    targetDao.updateTarget(t.getId(), t);
+                }
+            } else {
+                targetDao.create(WeeklyTarget.builder()
+                        .groupId(group.getId())
+                        .userId(member.getUserId())
+                        .weekNumber(w)
+                        .targetWeight(newTargetWeight)
+                        .coachOverride(false)
+                        .build());
+            }
+        }
     }
 
     // ── Helpers ──

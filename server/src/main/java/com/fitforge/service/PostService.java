@@ -22,12 +22,14 @@ public class PostService {
     private final PostCommentDao commentDao;
     private final GroupMemberDao memberDao;
     private final UserDao userDao;
+    private final NotificationService notificationService;
 
-    public PostService(PostDao postDao, PostCommentDao commentDao, GroupMemberDao memberDao, UserDao userDao) {
+    public PostService(PostDao postDao, PostCommentDao commentDao, GroupMemberDao memberDao, UserDao userDao, NotificationService notificationService) {
         this.postDao = postDao;
         this.commentDao = commentDao;
         this.memberDao = memberDao;
         this.userDao = userDao;
+        this.notificationService = notificationService;
     }
 
     public PostDto.PostResponse createPost(Long groupId, PostDto.PostRequest req, Long userId) {
@@ -44,6 +46,18 @@ public class PostService {
                 .videoUrls(req.getVideoUrls())
                 .build();
         post = postDao.create(post);
+        
+        User author = userDao.findById(userId).orElse(null);
+        String authorName = author != null ? author.getDisplayName() : "Someone";
+        notificationService.notifyGroupMembers(
+            groupId, 
+            userId, 
+            "NEW_POST", 
+            "New Post", 
+            "📝 " + authorName + " shared a new post.", 
+            "/app/groups/" + groupId + "?tab=feed"
+        );
+        
         return toResponse(post);
     }
 
@@ -101,6 +115,20 @@ public class PostService {
                 .content(req.getContent())
                 .build();
         comment = commentDao.create(comment);
+        
+        if (!post.getAuthorId().equals(userId)) {
+            User author = userDao.findById(userId).orElse(null);
+            String authorName = author != null ? author.getDisplayName() : "Someone";
+            notificationService.notifyUser(
+                post.getAuthorId(),
+                post.getGroupId(),
+                "NEW_COMMENT",
+                "New Comment",
+                "💬 " + authorName + " commented on your post.",
+                "/app/groups/" + post.getGroupId() + "?tab=feed"
+            );
+        }
+        
         return toCommentResponse(comment);
     }
 

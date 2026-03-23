@@ -41,6 +41,13 @@ const handleJoin = async () => {
     error.value = e.response?.data?.message || 'Failed to join group'
   }
 }
+
+const formatDate = (dateString) => {
+  if (!dateString) return ''
+  // Handle potentially different date formats from Spring Boot
+  const d = new Date(Array.isArray(dateString) ? `${dateString[0]}-${String(dateString[1]).padStart(2, '0')}-${String(dateString[2]).padStart(2, '0')}T00:00:00` : dateString)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
 </script>
 
 <template>
@@ -96,6 +103,10 @@ const handleJoin = async () => {
               <div class="header-text">
                 <h2>Set Your Mission</h2>
                 <p>Define your starting point for this challenge.</p>
+                <div v-if="invite?.endDate" class="deadline-badge animate-in animate-in-delay-2">
+                  <span class="deadline-icon">⏳</span>
+                  <span>Goal weight needed by: <strong class="gradient-text">{{ formatDate(invite.endDate) }}</strong></span>
+                </div>
               </div>
             </div>
 
@@ -112,8 +123,9 @@ const handleJoin = async () => {
               </div>
             </div>
 
-            <button class="btn-premium btn-lime btn-lg w-full mt-32" @click="handleJoin">
-              Accept Challenge & Join
+            <button class="btn btn-primary btn-lg w-full mt-32 btn-gorgeous" @click="handleJoin">
+              <span class="btn-text">Accept Challenge & Join</span>
+              <span class="btn-shine"></span>
             </button>
           </div>
         </template>
@@ -268,6 +280,79 @@ const handleJoin = async () => {
   .form-grid { grid-template-columns: 1fr; }
   .page-title { font-size: 2.25rem; }
   .form-header { margin-bottom: 32px; flex-direction: column; text-align: center; }
+}
+
+/* ── Deadline Badge ── */
+.deadline-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: rgba(217, 255, 77, 0.05);
+  border: 1px solid rgba(217, 255, 77, 0.1);
+  border-radius: var(--radius-full);
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.deadline-icon {
+  font-size: 1.1rem;
+}
+
+/* ── Gorgeous Button ── */
+.btn-gorgeous {
+  position: relative;
+  overflow: hidden;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, #d9ff4d 0%, #a8cf2b 50%, #d9ff4d 100%);
+  background-size: 200% auto;
+  color: #080808;
+  border: none;
+  box-shadow: 0 8px 32px rgba(217, 255, 77, 0.25), 
+              inset 0 2px 0 rgba(255, 255, 255, 0.5), 
+              inset 0 -2px 0 rgba(0, 0, 0, 0.1);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+}
+
+.btn-gorgeous:hover {
+  transform: translateY(-4px) scale(1.02);
+  background-position: right center;
+  box-shadow: 0 12px 40px rgba(217, 255, 77, 0.4), 
+              inset 0 2px 0 rgba(255, 255, 255, 0.5), 
+              inset 0 -2px 0 rgba(0, 0, 0, 0.1);
+}
+
+.btn-gorgeous:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-gorgeous .btn-text {
+  position: relative;
+  z-index: 2;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.3);
+}
+
+.btn-shine {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%);
+  transform: skewX(-25deg);
+  animation: shine 3s infinite;
+  z-index: 1;
+}
+
+@keyframes shine {
+  0% { left: -100%; }
+  20% { left: 200%; }
+  100% { left: 200%; }
 }
 </style>
 

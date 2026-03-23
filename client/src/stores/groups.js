@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import { useNotificationStore } from '@/stores/notifications'
 
 export const useGroupStore = defineStore('groups', {
   state: () => ({
@@ -37,6 +38,14 @@ export const useGroupStore = defineStore('groups', {
     async createGroup(payload) {
       const { data } = await api.post('/groups', payload)
       this.groups.unshift(data)
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'success',
+        title: '🎉 Group Created',
+        message: `Your group "${data.name}" is ready! Invite your friends to join.`
+      })
+
       return data
     },
 
@@ -56,6 +65,13 @@ export const useGroupStore = defineStore('groups', {
       if (this.currentGroup?.id === groupId) {
         this.currentGroup = null
       }
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'info',
+        title: '🗑️ Group Deleted',
+        message: 'The group has been removed.'
+      })
     },
 
     async leaveGroup(groupId, userId) {
@@ -64,16 +80,44 @@ export const useGroupStore = defineStore('groups', {
       if (this.currentGroup?.id === groupId) {
         this.currentGroup = null
       }
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'info',
+        title: '👋 Left Group',
+        message: 'You have left the group.'
+      })
     },
 
     async removeMember(groupId, userId) {
       await api.delete(`/groups/${groupId}/members/${userId}`)
+      const removed = this.members.find(m => m.userId === userId)
       this.members = this.members.filter(m => m.userId !== userId)
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'warning',
+        title: '👤 Member Removed',
+        message: `${removed?.displayName || 'A member'} was removed from the group.`
+      })
     },
 
     async fetchMembers(groupId) {
       const { data } = await api.get(`/groups/${groupId}/members`)
       this.members = data
+    },
+
+    async updateGoalWeight(groupId, userId, newGoalWeight) {
+      await api.put(`/groups/${groupId}/members/${userId}/goal-weight`, { goalWeight: newGoalWeight })
+      const member = this.members.find(m => m.userId === userId)
+      if (member) member.goalWeight = newGoalWeight
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'success',
+        title: '🎯 Goal Updated',
+        message: `Goal weight set to ${newGoalWeight} lbs. Targets recalculated.`
+      })
     },
 
     async fetchLeaderboard(groupId) {
@@ -88,6 +132,14 @@ export const useGroupStore = defineStore('groups', {
 
     async createPost(groupId, payload) {
       const { data } = await api.post(`/groups/${groupId}/posts`, payload)
+      
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'success',
+        title: '📝 Post Published',
+        message: 'Your post is now visible to the group.'
+      })
+      
       await this.fetchPosts(groupId)
     },
 
@@ -98,6 +150,14 @@ export const useGroupStore = defineStore('groups', {
         if (!post.comments) post.comments = []
         post.comments.push(data)
       }
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'success',
+        title: '💬 Comment Added',
+        message: 'Your comment was posted.'
+      })
+
       return data
     },
 
@@ -123,12 +183,17 @@ export const useGroupStore = defineStore('groups', {
       const { data } = await api.put(`/groups/${groupId}/targets/${targetId}`, { targetWeight })
       const idx = this.targets.findIndex(t => t.id === targetId)
       if (idx !== -1) this.targets[idx] = data
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'success',
+        title: '🎯 Target Updated',
+        message: `Weekly target adjusted to ${targetWeight} lbs.`
+      })
     },
 
     async fetchLogs(groupId, userId) {
       const { data } = await api.get(`/groups/${groupId}/logs`, { params: { userId } })
-      // Only update this.logs if fetching for the current user
-      // Actually, simplest is to just return data and let components manage it
       return data
     },
 
@@ -140,6 +205,23 @@ export const useGroupStore = defineStore('groups', {
 
     async createLog(groupId, payload) {
       const { data } = await api.post(`/groups/${groupId}/logs`, payload)
+      
+      const notifs = useNotificationStore()
+      const isNote = !payload.weightLbs
+      if (isNote) {
+        notifs.showToast({
+          type: 'success',
+          title: '📝 Note Posted',
+          message: 'Your note was shared with the group.'
+        })
+      } else {
+        notifs.showToast({
+          type: 'success',
+          title: '⚖️ Weight Logged',
+          message: `You logged ${payload.weightLbs} lbs. Keep it up!`
+        })
+      }
+      
       await this.fetchAllLogs(groupId)
       const auth = useAuthStore()
       if (auth.user?.id) {
@@ -175,6 +257,14 @@ export const useGroupStore = defineStore('groups', {
       }
       updateList(this.logs)
       updateList(this.allLogs)
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'success',
+        title: '💬 Comment Added',
+        message: 'Your comment was posted.'
+      })
+
       return data
     },
 
@@ -194,6 +284,14 @@ export const useGroupStore = defineStore('groups', {
       const { data } = await api.put(`/groups/${groupId}/posts/${postId}`, payload)
       const idx = this.posts.findIndex(p => p.id === postId)
       if (idx !== -1) this.posts[idx] = data
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'success',
+        title: '✏️ Post Updated',
+        message: 'Your changes have been saved.'
+      })
+
       return data
     },
 
@@ -204,11 +302,27 @@ export const useGroupStore = defineStore('groups', {
 
     async createInvite(groupId, email) {
       const { data } = await api.post(`/groups/${groupId}/invites`, { email })
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'success',
+        title: '📨 Invite Created',
+        message: email ? `Invite sent to ${email}!` : 'Invite link is ready to share!'
+      })
+
       return data
     },
 
     async acceptInvite(token, startWeight, goalWeight) {
       const { data } = await api.post(`/invites/${token}/accept`, { startWeight, goalWeight })
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'success',
+        title: '🎉 Welcome!',
+        message: 'You\'ve joined the challenge! Let\'s crush those goals together.'
+      })
+
       return data
     }
   }

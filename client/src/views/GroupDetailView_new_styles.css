@@ -6,7 +6,7 @@
   position: relative;
   overflow-x: hidden;
   z-index: 1;
-  padding-bottom: 120px;
+  padding-bottom: calc(120px + env(safe-area-inset-bottom));
 }
 
 .group-detail-page::before {
@@ -25,7 +25,10 @@
 .container { position: relative; z-index: 10; }
 
 /* ── HEADER ── */
-.group-page-header { padding: 32px 0 24px; }
+.group-page-header { 
+  padding: 32px 0 24px; 
+  padding-top: max(32px, env(safe-area-inset-top));
+}
 
 .header-back {
   display: flex;
@@ -491,7 +494,7 @@
 
 /* ── FAB ── */
 .fab-btn-premium {
-  position: fixed; bottom: 100px; right: 24px;
+  position: fixed; bottom: max(100px, calc(100px + env(safe-area-inset-bottom))); right: 24px;
   width: 60px; height: 60px;
   background: var(--gradient-lime);
   border-radius: 18px; color: #000;
@@ -602,7 +605,7 @@
   .info-grid { grid-template-columns: 1fr; gap: 10px; }
   .info-item { padding: 14px; }
   .member-manage-card { padding: 16px; flex-wrap: wrap; }
-  .fab-btn-premium { bottom: 88px; right: 16px; width: 54px; height: 54px; border-radius: 16px; }
+  .fab-btn-premium { bottom: max(88px, calc(88px + env(safe-area-inset-bottom))); right: 16px; width: 54px; height: 54px; border-radius: 16px; }
   .fab-btn-premium svg { width: 24px; height: 24px; }
   .modal-premium { padding: 28px 20px; border-radius: 20px; }
   .modal-headline { font-size: 1.4rem; }

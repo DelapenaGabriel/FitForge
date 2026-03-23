@@ -2,10 +2,18 @@
 import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupStore } from '@/stores/groups'
+import { useNotificationStore } from '@/stores/notifications'
 import quotes from '@/stores/quotes'
 
 const auth = useAuthStore()
 const groups = useGroupStore()
+const notifs = useNotificationStore()
+
+const showPushBanner = ref(false)
+const pushBannerDismissed = ref(false)
+
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+  || window.navigator.standalone === true
 
 const dailyQuote = computed(() => {
   // Use days since epoch to change the quote once per day
@@ -28,7 +36,23 @@ const filteredGroups = computed(() => {
 
 onMounted(() => {
   groups.fetchGroups()
+  // Show push notification banner if permission not yet decided
+  if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+    setTimeout(() => {
+      showPushBanner.value = true
+    }, 2000)
+  }
 })
+
+const handleEnablePush = async () => {
+  await notifs.requestPushPermission()
+  showPushBanner.value = false
+}
+
+const dismissPushBanner = () => {
+  showPushBanner.value = false
+  pushBannerDismissed.value = true
+}
 
 const greeting = computed(() => {
   const hour = new Date().getHours()
@@ -60,6 +84,22 @@ const getInitials = (name) => {
 <template>
   <div class="page dashboard-page">
     <div class="container pb-32">
+      <!-- Push Notification Banner -->
+      <transition name="banner-slide">
+        <div v-if="showPushBanner && !pushBannerDismissed" class="push-banner animate-in">
+          <div class="push-banner-content">
+            <div class="push-banner-icon">🔔</div>
+            <div class="push-banner-text">
+              <strong>Stay in the loop!</strong>
+              <span>Enable push notifications so you never miss a group update.</span>
+            </div>
+          </div>
+          <div class="push-banner-actions">
+            <button class="push-banner-enable" @click="handleEnablePush">Enable</button>
+            <button class="push-banner-dismiss" @click="dismissPushBanner">Not now</button>
+          </div>
+        </div>
+      </transition>
       <!-- Top header with Profile style from inspo -->
       <header class="dashboard-header animate-in">
         <div class="user-profile-header">
@@ -555,11 +595,125 @@ const getInitials = (name) => {
   }
 }
 
+/* Push Notification Banner */
+.push-banner {
+  background: rgba(217, 255, 77, 0.06);
+  border: 1px solid rgba(217, 255, 77, 0.15);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.push-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.push-banner-icon {
+  font-size: 1.8rem;
+  animation: bell-ring 2s ease-in-out infinite;
+}
+
+@keyframes bell-ring {
+  0%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(14deg); }
+  20% { transform: rotate(-14deg); }
+  30% { transform: rotate(10deg); }
+  40% { transform: rotate(-6deg); }
+  50% { transform: rotate(0deg); }
+}
+
+.push-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.push-banner-text strong {
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.push-banner-text span {
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+}
+
+.push-banner-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.push-banner-enable {
+  padding: 10px 22px;
+  background: var(--gradient-lime);
+  color: #000;
+  border: none;
+  border-radius: var(--radius-full);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 4px 16px var(--accent-lime-glow);
+}
+
+.push-banner-enable:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 24px var(--accent-lime-glow);
+}
+
+.push-banner-dismiss {
+  padding: 10px 18px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.83rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.push-banner-dismiss:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-glass);
+}
+
+.banner-slide-enter-active {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.banner-slide-leave-active {
+  transition: all 0.3s ease;
+}
+.banner-slide-enter-from,
+.banner-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+  max-height: 0;
+  padding: 0 24px;
+  margin-bottom: 0;
+}
+
 @media (max-width: 640px) {
   .featured-card { padding: 24px; }
   .featured-title { font-size: 1.75rem; }
   .group-name { font-size: 1.5rem; }
   .card-content { padding: 24px; }
+  .push-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>
 

@@ -74,6 +74,15 @@ public class GroupController {
         return ResponseEntity.ok().build();
     }
 
+    @PutMapping("/groups/{groupId}/members/{userId}/goal-weight")
+    public ResponseEntity<Void> updateGoalWeight(
+            @PathVariable Long groupId, @PathVariable Long userId,
+            @RequestBody GroupDto.UpdateGoalWeightRequest req, Authentication auth) {
+        Long requesterId = (Long) auth.getPrincipal();
+        groupService.updateMemberGoalWeight(groupId, userId, req.getGoalWeight(), requesterId);
+        return ResponseEntity.ok().build();
+    }
+
     @DeleteMapping("/groups/{groupId}/members/{userId}")
     public ResponseEntity<Void> removeMember(
             @PathVariable Long groupId, @PathVariable Long userId, Authentication auth) {

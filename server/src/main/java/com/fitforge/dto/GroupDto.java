@@ -4,6 +4,7 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import jakarta.validation.constraints.NotNull;
 
 public class GroupDto {
 
@@ -73,11 +74,18 @@ public class GroupDto {
         private String inviterName;
         private String status;
         private boolean alreadyMember;
+        private LocalDate endDate;
     }
 
     @Data
     public static class JoinRequest {
         private BigDecimal startWeight;
+        private BigDecimal goalWeight;
+    }
+
+    @Data
+    public static class UpdateGoalWeightRequest {
+        @NotNull(message = "Goal weight is required")
         private BigDecimal goalWeight;
     }
 }

@@ -1,15 +1,18 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupStore } from '@/stores/groups'
+import { useNotificationStore } from '@/stores/notifications'
 import { useRoute, useRouter } from 'vue-router'
 
 const auth = useAuthStore()
 const groups = useGroupStore()
+const notifs = useNotificationStore()
 const route = useRoute()
 const router = useRouter()
 
 const showPlusMenu = ref(false)
+const unreadCount = computed(() => notifs.unreadCount)
 
 const handlePlusAction = (action) => {
   showPlusMenu.value = false;
@@ -54,6 +57,12 @@ const getInitials = (name) => {
           + New Group
         </router-link>
 
+        <!-- Notification Bell -->
+        <button class="nav-bell-btn" @click="notifs.togglePanel()">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span v-if="unreadCount > 0" class="bell-badge" :class="{ 'bell-badge-pulse': unreadCount > 0 }">{{ unreadCount > 9 ? '9+' : unreadCount }}</span>
+        </button>
+
         <div class="user-menu">
           <router-link to="/profile" class="user-profile-link">
             <img v-if="auth.user.avatarUrl" :src="auth.user.avatarUrl" alt="Avatar" class="nav-avatar-img" />
@@ -84,11 +93,11 @@ const getInitials = (name) => {
           <div v-if="showPlusMenu" class="plus-popup-menu">
             <button class="popup-item" @click="handlePlusAction('add_log')">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-6M9 17l3 3 3-3M21 12H3"/></svg>
-              <span>Add Log</span>
+              <span>Log Weight</span>
             </button>
             <button class="popup-item" @click="handlePlusAction('add_note')">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-              <span>Add Post</span>
+              <span>Create Post</span>
             </button>
             <button class="popup-item" @click="handlePlusAction('create_group')">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -102,6 +111,14 @@ const getInitials = (name) => {
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
       </div>
+      <!-- Mobile Notification Bell -->
+      <button class="mobile-nav-item" :class="{ active: notifs.panelOpen }" @click="notifs.togglePanel()">
+        <div class="mobile-bell-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span v-if="unreadCount > 0" class="mobile-bell-badge">{{ unreadCount > 9 ? '9+' : unreadCount }}</span>
+        </div>
+        <span>Alerts</span>
+      </button>
       <router-link to="/profile" class="mobile-nav-item" active-class="active">
         <img v-if="auth.user.avatarUrl" :src="auth.user.avatarUrl" alt="Avatar" class="mobile-nav-avatar" />
         <svg v-else xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -121,7 +138,9 @@ const getInitials = (name) => {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border-subtle);
-  height: 72px;
+  min-height: 56px;
+  height: auto;
+  padding: env(safe-area-inset-top) 0 0 0;
 }
 
 .navbar-brand {
@@ -212,7 +231,7 @@ const getInitials = (name) => {
 .mobile-nav {
   display: none;
   position: fixed;
-  bottom: 24px;
+  bottom: max(24px, env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   z-index: 1000;
@@ -360,6 +379,87 @@ const getInitials = (name) => {
   z-index: 1005;
   left: 50%;
   transform: translateX(-50%);
+}
+
+/* Bell Button */
+.nav-bell-btn {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.nav-bell-btn:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-lime);
+  box-shadow: 0 0 16px var(--accent-lime-dim);
+}
+
+.bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-lime);
+  color: #000;
+  border-radius: var(--radius-full);
+  font-size: 0.65rem;
+  font-weight: 800;
+  font-family: var(--font-heading);
+  line-height: 1;
+  border: 2px solid rgba(8, 8, 8, 0.9);
+}
+
+.bell-badge-pulse {
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+/* Mobile Bell */
+.mobile-bell-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-bell-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-lime);
+  color: #000;
+  border-radius: var(--radius-full);
+  font-size: 0.55rem;
+  font-weight: 800;
+  font-family: var(--font-heading);
+  line-height: 1;
+  border: 2px solid rgba(20, 20, 22, 0.85);
+  animation: badge-pulse 2s ease-in-out infinite;
 }
 
 @media (max-width: 768px) {

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, watch } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useGroupStore } from "@/stores/groups";
@@ -94,6 +94,23 @@ const viewMemberLogs = async (member) => {
   }
 };
 
+const handleGoalWeightUpdated = async ({ userId, newWeight }) => {
+  // If we are looking at this user's calendar, refresh it
+  if (selectedCalendarUser.value === userId) {
+    if (userId === auth.user?.id) {
+      calendarTargets.value = groups.targets;
+    } else {
+      calendarTargets.value = await groups.getCalendarTargets(groupId.value, userId);
+    }
+  }
+  // Refresh data from server to ensure progress rings and stats update correctly
+  await Promise.all([
+    groups.fetchMembers(groupId.value),
+    groups.fetchLeaderboard(groupId.value),
+    groups.fetchGroup(groupId.value)
+  ]);
+};
+
 // Log form
 const logWeight = ref("");
 const logCalories = ref("");
@@ -101,6 +118,7 @@ const logNotes = ref("");
 const uploadedPhotos = ref([]);
 const uploadedVideos = ref([]);
 const logPinned = ref(false);
+const isSubmittingLog = ref(false);
 
 const commentText = ref({}); // { 'post-1': '...', 'log-1': '...' }
 
@@ -163,6 +181,7 @@ const removePhoto = (index) => {
 // Coach post form
 const postContent = ref("");
 const postType = ref("ADVICE");
+const isSubmittingPost = ref(false);
 
 // Invite form
 const inviteEmail = ref("");
@@ -194,6 +213,8 @@ const editLogPinned = ref(false);
 const editingPost = ref(null);
 const editPostContent = ref("");
 const editPostType = ref("ADVICE");
+const editPostPhotos = ref([]);
+const editPostVideos = ref([]);
 
 // Delete confirmation
 const confirmDelete = ref(null); // { type: 'log'|'post', id: Number }
@@ -228,6 +249,20 @@ const saveObjective = async () => {
   }
 };
 
+// Refresh data when user returns to the app (replaces polling)
+const refreshOnFocus = async () => {
+  if (document.visibilityState !== 'visible' || loading.value) return;
+  try {
+    const notifs = useNotificationStore();
+    await Promise.all([
+      groups.fetchPosts(groupId.value),
+      groups.fetchAllLogs(groupId.value),
+      groups.fetchMembers(groupId.value),
+      notifs.fetchNotifications()
+    ]);
+  } catch { /* non-critical on refocus */ }
+};
+
 onMounted(async () => {
   try {
     await groups.fetchGroup(groupId.value);
@@ -245,6 +280,13 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
+
+  // Listen for tab/app focus to refresh data
+  document.addEventListener('visibilitychange', refreshOnFocus);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', refreshOnFocus);
 });
 
 const isCoach = computed(() => groups.currentGroup?.myRole === "COACH");
@@ -252,6 +294,7 @@ const isCoach = computed(() => groups.currentGroup?.myRole === "COACH");
 const handleLog = async () => {
   if (!logWeight.value && !logNotes.value && uploadedPhotos.value.length === 0) return;
 
+  isSubmittingLog.value = true;
   try {
     const payload = {
       weightLbs: logWeight.value ? parseFloat(logWeight.value) : null,
@@ -274,6 +317,7 @@ const handleLog = async () => {
     console.error("Failed to submit log:", error);
     alert("Submission failed. Please check your connection and try again.");
   } finally {
+    isSubmittingLog.value = false;
     groups.showLogModal = false;
   }
 };
@@ -281,6 +325,7 @@ const handleLog = async () => {
 const handlePost = async () => {
   if (!postContent.value.trim() && uploadedPhotos.value.length === 0 && uploadedVideos.value.length === 0) return;
   
+  isSubmittingPost.value = true;
   try {
     const payload = {
       content: postContent.value,
@@ -299,6 +344,7 @@ const handlePost = async () => {
     console.error("Failed to submit post:", error);
     alert(error.response?.data?.message || "Submission failed. Please check your connection and try again.");
   } finally {
+    isSubmittingPost.value = false;
     if (groups.showLogModal) {
       groups.showLogModal = false;
     }
@@ -414,10 +460,14 @@ const startEditPost = (post) => {
   editingPost.value = post.id;
   editPostContent.value = post.content;
   editPostType.value = post.postType;
+  editPostPhotos.value = [...(post.photoUrls || [])];
+  editPostVideos.value = [...(post.videoUrls || [])];
 };
 
 const cancelEditPost = () => {
   editingPost.value = null;
+  editPostPhotos.value = [];
+  editPostVideos.value = [];
 };
 
 const saveEditPost = async (postId) => {
@@ -426,8 +476,12 @@ const saveEditPost = async (postId) => {
     await groups.updatePost(groupId.value, postId, {
       content: editPostContent.value,
       postType: editPostType.value,
+      photoUrls: editPostPhotos.value,
+      videoUrls: editPostVideos.value,
     });
     editingPost.value = null;
+    editPostPhotos.value = [];
+    editPostVideos.value = [];
   } catch (error) {
     console.error("Failed to update post:", error);
     alert(
@@ -515,6 +569,26 @@ const formatDate = (d) => {
     month: "short",
     day: "numeric",
   });
+};
+
+const timeAgo = (d) => {
+  if (!d) return "";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "";
+  const seconds = Math.floor((new Date() - date) / 1000);
+  if (seconds < 60) return "Just now";
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 4) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  const years = Math.floor(days / 365);
+  return `${years}y ago`;
 };
 
 const groupedFeed = computed(() => {
@@ -705,7 +779,7 @@ const getTargetStatus = (target) => {
                       <button class="media-thumb-remove" @click="removePhoto(idx)">×</button>
                    </div>
                    <div v-for="(url, idx) in uploadedVideos" :key="'v'+idx" class="media-thumb media-thumb-video">
-                      <video :src="url"></video>
+                      <video :src="url + '#t=0.001'" preload="metadata" playsinline></video>
                       <div class="media-thumb-play">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="m7 4 12 8-12 8V4z"/></svg>
                       </div>
@@ -725,9 +799,18 @@ const getTargetStatus = (target) => {
                        <span>Video</span>
                      </button>
                   </div>
-                  <button class="create-post-submit" @click="handlePost" :disabled="!postContent.trim() && uploadedPhotos.length === 0 && uploadedVideos.length === 0">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-                    Post
+                  <button class="create-post-submit" style="display: flex; align-items: center; justify-content: center; gap: 8px;" @click="handlePost" :disabled="!postContent.trim() && uploadedPhotos.length === 0 && uploadedVideos.length === 0 || isSubmittingPost">
+                    <template v-if="!isSubmittingPost">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                      Post
+                    </template>
+                    <template v-else>
+                      <svg class="btn-spinner text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Sending...
+                    </template>
                   </button>
                 </div>
               </div>
@@ -838,7 +921,7 @@ const getTargetStatus = (target) => {
                       <!-- Video Gallery -->
                       <div v-if="item.videoUrls?.length > 0" class="feed-video-grid">
                         <div v-for="(url, idx) in item.videoUrls" :key="idx" class="feed-video-item">
-                           <video :src="url" controls preload="metadata"></video>
+                           <video :src="url + '#t=0.001'" controls preload="metadata" playsinline></video>
                         </div>
                       </div>
                     </div>
@@ -856,7 +939,7 @@ const getTargetStatus = (target) => {
                           <div class="feed-comment-body">
                             <div class="feed-comment-meta">
                               <span class="feed-comment-name">{{ comment.authorName }}</span>
-                              <span class="feed-comment-time">{{ formatDate(comment.createdAt) }}</span>
+                              <span class="feed-comment-time">{{ timeAgo(comment.createdAt) }}</span>
                             </div>
                             <p class="feed-comment-text">{{ comment.content }}</p>
                           </div>
@@ -869,12 +952,12 @@ const getTargetStatus = (target) => {
                       </div>
 
                       <div class="feed-comment-input">
-                        <input v-model="commentText[`post-${item.id}`]" 
-                               type="text" 
+                        <textarea v-model="commentText[`post-${item.id}`]" 
                                placeholder="Write a comment..."
-                               @keyup.enter="submitComment('post', item.id)"/>
+                               rows="1"
+                               @input="(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }"></textarea>
                         <button :disabled="!commentText[`post-${item.id}`]?.trim()"
-                                @click="submitComment('post', item.id)">
+                                @click="submitComment('post', item.id); $event.currentTarget.previousElementSibling.style.height = 'auto'">
                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
                         </button>
                       </div>
@@ -934,7 +1017,7 @@ const getTargetStatus = (target) => {
                           <div class="feed-comment-body">
                             <div class="feed-comment-meta">
                               <span class="feed-comment-name">{{ comment.authorName }}</span>
-                              <span class="feed-comment-time">{{ formatDate(comment.createdAt) }}</span>
+                              <span class="feed-comment-time">{{ timeAgo(comment.createdAt) }}</span>
                             </div>
                             <p class="feed-comment-text">{{ comment.content }}</p>
                           </div>
@@ -947,12 +1030,12 @@ const getTargetStatus = (target) => {
                       </div>
 
                       <div class="feed-comment-input">
-                        <input v-model="commentText[`log-${item.id}`]" 
-                               type="text"
+                        <textarea v-model="commentText[`log-${item.id}`]" 
                                placeholder="Write a comment..."
-                               @keyup.enter="submitComment('log', item.id)"/>
+                               rows="1"
+                               @input="(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }"></textarea>
                         <button :disabled="!commentText[`log-${item.id}`]?.trim()"
-                                @click="submitComment('log', item.id)">
+                                @click="submitComment('log', item.id); $event.currentTarget.previousElementSibling.style.height = 'auto'">
                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
                         </button>
                       </div>
@@ -1289,7 +1372,7 @@ const getTargetStatus = (target) => {
                       <button class="media-thumb-remove" @click="removePhoto(idx)">×</button>
                    </div>
                    <div v-for="(url, idx) in uploadedVideos" :key="'v'+idx" class="media-thumb media-thumb-video">
-                      <video :src="url"></video>
+                      <video :src="url + '#t=0.001'" preload="metadata" playsinline></video>
                       <div class="media-thumb-play">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="m7 4 12 8-12 8V4z"/></svg>
                       </div>
@@ -1313,9 +1396,18 @@ const getTargetStatus = (target) => {
                 </div>
                 <div class="modal-footer-btns" style="margin-top: 16px;">
                   <button class="btn btn-secondary w-full" @click="groups.showLogModal = false">Discard</button>
-                  <button class="create-post-submit w-full" style="border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px;" @click="handlePost" :disabled="!postContent.trim() && uploadedPhotos.length === 0 && uploadedVideos.length === 0">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-                    Save Post
+                  <button class="create-post-submit w-full" style="border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px;" @click="handlePost" :disabled="!postContent.trim() && uploadedPhotos.length === 0 && uploadedVideos.length === 0 || isSubmittingPost">
+                    <template v-if="!isSubmittingPost">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                      Save Post
+                    </template>
+                    <template v-else>
+                      <svg class="btn-spinner text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Saving...
+                    </template>
                   </button>
                 </div>
               </div>
@@ -1358,8 +1450,17 @@ const getTargetStatus = (target) => {
 
             <div class="modal-footer-btns mt-8">
               <button class="btn btn-secondary w-full" @click="groups.showLogModal = false">Discard</button>
-              <button class="btn btn-primary w-full" @click="handleLog" :disabled="!logWeight">
-                Confirm Log
+              <button class="btn btn-primary w-full" style="display: flex; align-items: center; justify-content: center; gap: 8px;" @click="handleLog" :disabled="!logWeight || isSubmittingLog">
+                <template v-if="!isSubmittingLog">
+                  Confirm Log
+                </template>
+                <template v-else>
+                  <svg class="btn-spinner text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Logging...
+                </template>
               </button>
             </div>
           </div>
@@ -1400,7 +1501,7 @@ const getTargetStatus = (target) => {
 
       <!-- Modals -->
       <ImagePreviewModal v-if="showPreviewModal" :images="previewImages" v-model="previewIndex" @close="showPreviewModal = false" />
-      <MemberLogsModal v-if="showMemberLogsModal" :member="selectedMember" :logs="memberLogs" @close="showMemberLogsModal = false" @preview-photo="({ urls, index }) => openPreview(urls, index)" />
+      <MemberLogsModal v-if="showMemberLogsModal" :member="selectedMember" :logs="memberLogs" @close="showMemberLogsModal = false" @preview-photo="({ urls, index }) => openPreview(urls, index)" @goal-weight-updated="handleGoalWeightUpdated" />
     </div>
   </div>
 </template>
@@ -2518,7 +2619,7 @@ button.feed-comment-count:hover {
 .feed-comment-meta { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
 .feed-comment-name { font-size: 0.9rem; font-weight: 700; color: #fff; }
 .feed-comment-time { font-size: 0.75rem; color: var(--text-muted); }
-.feed-comment-text { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; }
+.feed-comment-text { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .feed-comment-delete {
   opacity: 0; padding: 6px; color: var(--text-muted); background: transparent; border: none; cursor: pointer;
   transition: opacity 0.2s, color 0.2s; align-self: flex-start; margin-top: 6px;
@@ -2535,11 +2636,12 @@ button.feed-comment-count:hover {
 .feed-comment-input:focus-within {
   border-color: rgba(217,255,77,0.3); background: rgba(255,255,255,0.06);
 }
-.feed-comment-input input {
+.feed-comment-input textarea {
   flex-grow: 1; background: transparent; border: none; color: #fff;
-  font-size: 0.95rem; outline: none;
+  font-size: 0.95rem; outline: none; resize: none; overflow-y: hidden;
+  padding: 8px 0; font-family: inherit; line-height: 1.5; max-height: 120px;
 }
-.feed-comment-input input::placeholder { color: var(--text-muted); }
+.feed-comment-input textarea::placeholder { color: var(--text-muted); }
 .feed-comment-input button {
   width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   background: var(--accent-lime); color: #000; border: none; cursor: pointer; transition: transform 0.2s, opacity 0.2s;
@@ -2554,6 +2656,21 @@ button.feed-comment-count:hover {
   .feed-post-actions { position: absolute; top: 16px; right: 16px; }
   .feed-post-header { flex-direction: column; position: relative; gap: 12px; }
   .feed-post-meta { align-items: flex-start; }
+}
+
+.w-full { width: 100%; }
+.text-current { color: currentColor; }
+
+/* Spinner Animation */
+.btn-spinner {
+  height: 20px;
+  width: 20px;
+  animation: spinner-spin 1s linear infinite;
+  filter: drop-shadow(0 0 5px currentColor);
+}
+@keyframes spinner-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>
 
