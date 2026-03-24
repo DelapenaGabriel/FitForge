@@ -51,13 +51,22 @@ export const useNotificationStore = defineStore('notifications', {
       }
     },
 
-    clearAll() {
-      this.markAllAsRead() // No delete endpoint yet, so just mark all read
+    async clearAll() {
+      try {
+        await api.delete('/notifications')
+        this.notifications = []
+      } catch (err) {
+        console.error('Failed to clear all notifications:', err)
+      }
     },
 
-    removeNotification(id) {
-      // Just local remove for now to hide it
-      this.notifications = this.notifications.filter(x => x.id !== id)
+    async removeNotification(id) {
+      try {
+        await api.delete(`/notifications/${id}`)
+        this.notifications = this.notifications.filter(x => x.id !== id)
+      } catch (err) {
+        console.error('Failed to delete notification:', err)
+      }
     },
 
     // ── Local Panel & Toasts ───────────────────────────

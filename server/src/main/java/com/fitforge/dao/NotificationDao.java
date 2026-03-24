@@ -86,4 +86,8 @@ public class NotificationDao {
     public void delete(Long id, Long userId) {
         jdbc.update("DELETE FROM notifications WHERE id = ? AND user_id = ?", id, userId);
     }
+
+    public void deleteAll(Long userId) {
+        jdbc.update("DELETE FROM notifications WHERE user_id = ?", userId);
+    }
 }

@@ -75,6 +75,14 @@ public class NotificationService {
         notificationDao.markAllAsRead(userId);
     }
 
+    public void deleteAll(Long userId) {
+        notificationDao.deleteAll(userId);
+    }
+
+    public void delete(Long id, Long userId) {
+        notificationDao.delete(id, userId);
+    }
+
     private NotificationDto.Response toResponse(Notification n) {
         return NotificationDto.Response.builder()
                 .id(n.getId())
