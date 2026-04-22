@@ -51,6 +51,12 @@ const router = createRouter({
       meta: { auth: true }
     },
     {
+      path: '/nutrition',
+      name: 'Nutrition',
+      component: () => import('@/views/NutritionView.vue'),
+      meta: { auth: true }
+    },
+    {
       path: '/profile',
       name: 'Profile',
       component: () => import('@/views/ProfileView.vue'),

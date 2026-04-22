@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ericblade/quagga2": "^1.12.1",
     "@supabase/supabase-js": "^2.101.1",
     "axios": "^1.13.6",
     "pinia": "^3.0.4",
