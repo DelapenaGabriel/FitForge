@@ -54,7 +54,15 @@ const getInitials = (name) => {
 
 const formatDate = (dateString) => {
   if (!dateString) return ''
-  const d = new Date(dateString)
+  let d;
+  if (Array.isArray(dateString)) {
+    d = new Date(dateString[0], dateString[1] - 1, dateString[2] || 1);
+  } else if (typeof dateString === 'string' && dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    const [y, m, day] = dateString.split('-').map(Number);
+    d = new Date(y, m - 1, day);
+  } else {
+    d = new Date(dateString);
+  }
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 

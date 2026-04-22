@@ -616,7 +616,16 @@ const getWeeksRemaining = (endDate) => {
 
 const formatDate = (d) => {
   if (!d) return "";
-  return new Date(d).toLocaleDateString("en-US", {
+  let dateObj;
+  if (Array.isArray(d)) {
+    dateObj = new Date(d[0], d[1] - 1, d[2] || 1);
+  } else if (typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    const [y, m, day] = d.split('-').map(Number);
+    dateObj = new Date(y, m - 1, day);
+  } else {
+    dateObj = new Date(d);
+  }
+  return dateObj.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   });
