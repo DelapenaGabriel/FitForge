@@ -27,6 +27,12 @@ const router = createRouter({
       meta: { auth: true }
     },
     {
+      path: '/groups',
+      name: 'Groups',
+      component: () => import('@/views/GroupsView.vue'),
+      meta: { auth: true }
+    },
+    {
       path: '/groups/create',
       name: 'CreateGroup',
       component: () => import('@/views/CreateGroupView.vue'),
@@ -58,14 +64,17 @@ const router = createRouter({
   ]
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from) => {
   const auth = useAuthStore()
+  
+  if (!auth.initialized) {
+    await auth.initialize()
+  }
+
   if (to.meta.auth && !auth.isAuthenticated) {
-    next({ path: '/login', query: { redirect: to.fullPath } })
+    return { path: '/login', query: { redirect: to.fullPath } }
   } else if (to.meta.guest && auth.isAuthenticated) {
-    next('/dashboard')
-  } else {
-    next()
+    return '/dashboard'
   }
 })
 

@@ -1,445 +1,504 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useGroupStore } from '@/stores/groups'
+import { useNotificationStore } from '@/stores/notifications'
 import { useRouter } from 'vue-router'
 
 const auth = useAuthStore()
+const groups = useGroupStore()
+const notifications = useNotificationStore()
 const router = useRouter()
 const uploading = ref(false)
 const uploadSuccess = ref(false)
+const fileInput = ref(null)
 
 const getInitials = (name) => {
   if (!name) return '?'
   return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 }
 
-const openAvatarUpload = () => {
-  uploading.value = true
-  window.cloudinary.openUploadWidget(
-    {
-      cloudName: 'dilpitidj',
-      uploadPreset: 'fitforge',
-      sources: ['local', 'camera'],
-      multiple: false,
-      maxFiles: 1,
-      cropping: true,
-      croppingAspectRatio: 1,
-      croppingShowDimensions: true,
-      resourceType: 'image',
-      clientAllowedFormats: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
-      maxFileSize: 5000000,
-      showSkipCropButton: false,
-      singleUploadAutoClose: false,
-      styles: {
-        palette: {
-          window: '#1A1A1A',
-          sourceBg: '#242424',
-          windowBorder: '#333333',
-          tabIcon: '#2DD4BF',
-          inactiveTabIcon: '#94A3B8',
-          menuIcons: '#2DD4BF',
-          link: '#2DD4BF',
-          action: '#2DD4BF',
-          inProgress: '#F59E0B',
-          complete: '#10B981',
-          error: '#EF4444',
-          textDark: '#000000',
-          textLight: '#F8FAFC',
-        },
-      },
-    },
-    async (error, result) => {
-      if (error) {
-        uploading.value = false
-        return
-      }
-      if (result.event === 'close') {
-        uploading.value = false
-        return
-      }
-      if (result.event === 'success') {
-        try {
-          await auth.updateProfile({ avatarUrl: result.info.secure_url })
-          uploadSuccess.value = true
-          setTimeout(() => { uploadSuccess.value = false }, 3000)
-        } catch (err) {
-          console.error('Failed to update avatar:', err)
-        } finally {
-          uploading.value = false
-        }
-      }
-    },
-  )
+const triggerFileInput = () => {
+  if (uploading.value) return
+  fileInput.value?.click()
 }
-const logout = () => {
-  auth.logout()
-  router.push('/login')
+
+const handleFileChange = async (event) => {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  // Validate size
+  if (file.size > 5000000) {
+    alert('File size must be less than 5MB')
+    return
+  }
+
+  uploading.value = true
+  
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('upload_preset', 'fitforge')
+
+    const res = await fetch('https://api.cloudinary.com/v1_1/dho7jd4k8/image/upload', {
+      method: 'POST',
+      body: formData
+    })
+    
+    if (!res.ok) {
+      throw new Error('Upload failed')
+    }
+    
+    const result = await res.json()
+    await auth.updateProfile({ avatarUrl: result.secure_url })
+    
+    uploadSuccess.value = true
+    setTimeout(() => { uploadSuccess.value = false }, 3000)
+  } catch (err) {
+    console.error('Failed to update avatar:', err)
+  } finally {
+    uploading.value = false
+    if (fileInput.value) {
+      fileInput.value.value = ''
+    }
+  }
+}
+
+const logout = async () => {
+  await auth.logout()
+  // Clear all cached store data
+  groups.$reset()
+  notifications.$reset()
+  // Replace (not push) so back button won't return to stale authenticated page
+  router.replace('/login')
 }
 </script>
 
 <template>
-  <div class="page profile-page">
-    <div class="container">
-      <header class="profile-header animate-in">
-        <router-link to="/dashboard" class="back-link">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-        </router-link>
-        <h1 class="page-title">Profile</h1>
-      </header>
+  <div class="fk-profile-page">
+    <!-- Ambient glow effects -->
+    <div class="fk-profile-glow"></div>
+    <div class="fk-profile-glow-secondary"></div>
 
-      <!-- Avatar Section -->
-      <section class="avatar-section animate-in animate-in-delay-1">
-        <div class="avatar-upload-ring" @click="openAvatarUpload" :class="{ uploading }">
-          <div class="avatar-display">
-            <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="Profile avatar" class="avatar-image" />
-            <div v-else class="avatar-initials">
+    <div class="fk-profile-container">
+      <!-- Avatar + Identity cluster -->
+      <section class="fk-hero-cluster">
+        <input type="file" ref="fileInput" @change="handleFileChange" accept="image/*" style="display: none" />
+        <div class="fk-avatar-ring" @click="triggerFileInput" :class="{ uploading }">
+          <div class="fk-avatar-display" :style="{ opacity: uploading ? 0.5 : 1, transition: 'opacity 0.3s' }">
+            <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="Profile avatar" class="fk-avatar-img" />
+            <div v-else class="fk-avatar-initials">
               {{ getInitials(auth.user?.displayName) }}
             </div>
           </div>
-          <div class="avatar-overlay">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-              <circle cx="12" cy="13" r="4"/>
-            </svg>
-            <span>Change Photo</span>
+          <div class="fk-avatar-overlay" :style="{ opacity: uploading ? 1 : '' }">
+            <svg v-if="!uploading" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="fk-simple-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
           </div>
-          <!-- Spinner ring -->
-          <svg v-if="uploading" class="spinner-ring" viewBox="0 0 120 120">
-            <circle cx="60" cy="60" r="56" />
-          </svg>
+          <!-- Edit badge -->
+          <div v-if="!uploading" class="fk-avatar-edit-badge">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0e0e0e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
         </div>
 
-        <!-- Success flash -->
-        <transition name="fade">
-          <div v-if="uploadSuccess" class="upload-success-toast">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <!-- Success toast -->
+        <transition name="fk-fade">
+          <div v-if="uploadSuccess" class="fk-upload-toast">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             Avatar updated!
           </div>
         </transition>
+
+        <h1 class="fk-profile-name">{{ auth.user?.displayName || 'Athlete' }}</h1>
+        <p class="fk-profile-hint">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+          Tap avatar to update · 5 MB max
+        </p>
       </section>
 
-      <!-- User Info Card -->
-      <section class="user-info-card glass-card animate-in animate-in-delay-2">
-        <div class="info-row">
-          <span class="info-label">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            Display Name
-          </span>
-          <span class="info-value">{{ auth.user?.displayName }}</span>
+      <!-- Account Info Card -->
+      <section class="fk-profile-card">
+        <h3 class="fk-card-heading">ACCOUNT</h3>
+        <div class="fk-card-row">
+          <div class="fk-card-row-left">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>Name</span>
+          </div>
+          <span class="fk-card-row-value">{{ auth.user?.displayName }}</span>
         </div>
-        <div class="info-divider"></div>
-        <div class="info-row">
-          <span class="info-label">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-            Email
-          </span>
-          <span class="info-value">{{ auth.user?.email }}</span>
+        <div class="fk-card-row">
+          <div class="fk-card-row-left">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            <span>Email</span>
+          </div>
+          <span class="fk-card-row-value fk-card-row-email">{{ auth.user?.email }}</span>
         </div>
       </section>
 
-      <!-- Tip -->
-      <p class="upload-hint animate-in animate-in-delay-3">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-        Tap the avatar to upload a new photo. Max 5 MB.
-      </p>
-
-      <!-- Logout Button -->
-      <div class="logout-section animate-in animate-in-delay-4">
-        <button class="btn-logout" @click="logout">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          Sign Out
+      <!-- Logout -->
+      <section class="fk-system-section">
+        <button class="fk-logout-btn" @click="logout">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          SIGN OUT
         </button>
-      </div>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-.profile-page {
-  background: var(--bg-primary);
-  min-height: 100vh;
-  position: relative;
+.fk-profile-page {
+  background: #0e0e0e;
+  position: fixed;
+  inset: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: calc(80px + env(safe-area-inset-bottom));
 }
 
-.profile-page::before {
-  content: '';
+/* Primary ambient glow */
+.fk-profile-glow {
   position: absolute;
-  top: -30vh;
+  top: -20vh;
   left: 50%;
   transform: translateX(-50%);
-  width: 150vw;
-  height: 80vh;
-  background: radial-gradient(ellipse at top, var(--accent-lime-glow) 0%, transparent 60%);
-  z-index: 0;
+  width: 140vw;
+  height: 60vh;
+  background: radial-gradient(ellipse at top, rgba(223, 255, 0, 0.05) 0%, transparent 55%);
   pointer-events: none;
-  opacity: 0.6;
+  z-index: 0;
 }
 
-.container {
-  position: relative;
-  z-index: 10;
-  padding-bottom: 120px;
+/* Secondary subtle accent glow */
+.fk-profile-glow-secondary {
+  position: absolute;
+  bottom: 10vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  height: 30vh;
+  background: radial-gradient(ellipse at bottom, rgba(223, 255, 0, 0.02) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
 }
 
-.profile-header {
+.fk-profile-container {
+  flex: 1;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 40px 0 24px;
-}
-
-.back-link {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-glass);
-  display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: center;
-  color: var(--text-primary);
-  text-decoration: none;
-  transition: all 0.3s;
-  flex-shrink: 0;
+  align-items: stretch;
+  max-width: 440px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+  z-index: 1;
+  gap: 16px;
 }
 
-.back-link:hover {
-  background: var(--accent-lime);
-  color: #000;
-  border-color: var(--accent-lime);
-}
-
-.page-title {
-  font-family: var(--font-heading);
-  font-weight: 900;
-  font-size: 2rem;
-  letter-spacing: -0.03em;
-}
-
-/* Avatar Section */
-.avatar-section {
+/* Hero cluster: avatar + name + hint */
+.fk-hero-cluster {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 32px 0 24px;
+  text-align: center;
+  gap: 0;
 }
 
-.avatar-upload-ring {
+/* Avatar */
+.fk-avatar-ring {
   position: relative;
-  width: 140px;
-  height: 140px;
-  border-radius: 50%;
+  width: 100px;
+  height: 100px;
+  border-radius: 24px;
   cursor: pointer;
-  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  flex-shrink: 0;
 }
 
-.avatar-upload-ring:hover {
-  transform: scale(1.05);
+.fk-avatar-ring:active {
+  transform: scale(0.96);
 }
 
-.avatar-upload-ring:hover .avatar-overlay {
+.fk-avatar-ring:hover .fk-avatar-overlay {
   opacity: 1;
 }
 
-.avatar-display {
+.fk-avatar-display {
   width: 100%;
   height: 100%;
-  border-radius: 50%;
+  border-radius: 24px;
   overflow: hidden;
-  border: 3px solid var(--border-glass);
+  border: 2.5px solid rgba(223, 255, 0, 0.15);
   position: relative;
   z-index: 1;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 4px rgba(163, 230, 53, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
-.avatar-image {
+.fk-avatar-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.avatar-initials {
+.fk-avatar-initials {
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, rgba(163, 230, 53, 0.2), rgba(163, 230, 53, 0.05));
-  color: var(--accent-lime);
-  font-family: var(--font-heading);
+  background: linear-gradient(145deg, #1a1a1a, #131313);
+  color: #DFFF00;
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 900;
-  font-size: 3rem;
-  letter-spacing: -0.02em;
+  font-size: 2rem;
 }
 
-.avatar-overlay {
+.fk-avatar-overlay {
   position: absolute;
   inset: 0;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.65);
+  border-radius: 24px;
+  background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(4px);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
   color: #fff;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   opacity: 0;
   transition: opacity 0.3s;
   z-index: 2;
 }
 
-.avatar-upload-ring.uploading .avatar-overlay {
-  opacity: 0;
-}
-
-/* Spinner Ring */
-.spinner-ring {
+.fk-avatar-edit-badge {
   position: absolute;
-  inset: -6px;
-  width: calc(100% + 12px);
-  height: calc(100% + 12px);
+  bottom: -3px;
+  right: -3px;
+  width: 26px;
+  height: 26px;
+  background: #DFFF00;
+  border-radius: 50%;
+  border: 3px solid #0e0e0e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 3;
-  animation: spin 1.2s linear infinite;
+  box-shadow: 0 2px 8px rgba(223, 255, 0, 0.2);
 }
 
-.spinner-ring circle {
-  fill: none;
-  stroke: var(--accent-lime);
-  stroke-width: 3;
-  stroke-dasharray: 100 250;
-  stroke-linecap: round;
+.fk-simple-spin {
+  animation: fk-simple-spin 1s linear infinite;
 }
 
-@keyframes spin {
+@keyframes fk-simple-spin {
   to { transform: rotate(360deg); }
 }
 
-/* Success Toast */
-.upload-success-toast {
+/* Upload toast */
+.fk-upload-toast {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 16px;
-  padding: 10px 20px;
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  border-radius: var(--radius-full);
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 16px;
+  background: rgba(16, 185, 129, 0.1);
+  border-radius: 100px;
   color: #10B981;
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
 }
 
-.fade-enter-active,
-.fade-leave-active {
+.fk-fade-enter-active,
+.fk-fade-leave-active {
   transition: opacity 0.4s ease, transform 0.4s ease;
 }
-
-.fade-enter-from,
-.fade-leave-to {
+.fk-fade-enter-from,
+.fk-fade-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateY(-6px);
 }
 
-/* User Info Card */
-.user-info-card {
-  padding: 0;
-  overflow: hidden;
-  margin-top: 16px;
-}
-
-.info-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 24px;
-}
-
-.info-label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.info-value {
+/* Name */
+.fk-profile-name {
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
-  font-size: 1rem;
-  color: var(--text-primary);
-}
-
-.info-divider {
-  height: 1px;
-  background: var(--border-subtle);
-  margin: 0 24px;
+  font-size: 2rem;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: #fff;
+  margin-top: 14px;
+  margin-bottom: 0;
 }
 
 /* Hint */
-.upload-hint {
+.fk-profile-hint {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  text-align: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.18);
+  font-size: 0.72rem;
+  margin-top: 6px;
+  letter-spacing: 0.01em;
 }
 
-.logout-section {
-  margin-top: 48px;
-  display: flex;
-  justify-content: center;
+/* Card */
+.fk-profile-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 18px;
+  padding: 18px 20px;
 }
 
-.btn-logout {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 32px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: var(--radius-xl);
-  color: #ef4444;
+.fk-card-heading {
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.35);
+  margin-bottom: 8px;
+}
+
+.fk-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+}
+
+.fk-card-row + .fk-card-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.fk-card-row-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.fk-card-row-value {
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.fk-card-row-email {
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* System / Logout */
+.fk-system-section {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.fk-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 36px;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.1);
+  border-radius: 14px;
+  color: #ef4444;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s;
   width: 100%;
-  max-width: 300px;
+  max-width: 260px;
   justify-content: center;
 }
 
-.btn-logout:hover {
+.fk-logout-btn:hover {
   background: #ef4444;
   color: #fff;
-  border-color: #ef4444;
-  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
+  border-color: transparent;
+  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.25);
   transform: translateY(-2px);
 }
 
-.btn-logout:active {
-  transform: translateY(0);
+.fk-logout-btn:active {
+  transform: translateY(0) scale(0.98);
 }
 
-@media (max-width: 640px) {
-  .avatar-upload-ring {
+/* ---- Responsive fine-tuning ---- */
+
+/* Small phones (SE, Mini, etc.) */
+@media (max-height: 680px) {
+  .fk-avatar-ring {
+    width: 80px;
+    height: 80px;
+    border-radius: 20px;
+  }
+  .fk-avatar-display {
+    border-radius: 20px;
+  }
+  .fk-avatar-overlay {
+    border-radius: 20px;
+  }
+  .fk-avatar-initials {
+    font-size: 1.6rem;
+  }
+  .fk-profile-name {
+    font-size: 1.6rem;
+    margin-top: 10px;
+  }
+  .fk-profile-card {
+    padding: 14px 16px;
+  }
+  .fk-card-row {
+    padding: 10px 0;
+  }
+  .fk-logout-btn {
+    padding: 12px 28px;
+  }
+  .fk-profile-container {
+    gap: 12px;
+  }
+}
+
+/* Tall phones (Pro Max, Ultra, etc.) */
+@media (min-height: 800px) {
+  .fk-avatar-ring {
+    width: 110px;
+    height: 110px;
+  }
+  .fk-profile-name {
+    font-size: 2.2rem;
+    margin-top: 16px;
+  }
+  .fk-profile-container {
+    gap: 20px;
+  }
+  .fk-profile-card {
+    padding: 22px 24px;
+  }
+}
+
+/* Very tall phones / tablets */
+@media (min-height: 1000px) {
+  .fk-avatar-ring {
     width: 120px;
     height: 120px;
   }
-
-  .avatar-initials {
+  .fk-profile-name {
     font-size: 2.5rem;
   }
-
-  .page-title {
-    font-size: 1.5rem;
+  .fk-profile-container {
+    gap: 24px;
   }
 }
 </style>

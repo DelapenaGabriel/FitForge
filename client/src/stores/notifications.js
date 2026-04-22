@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
-import api from '@/api' // using the standard api axios instance
+import { supabase } from '@/lib/supabaseClient'
+import { useAuthStore } from '@/stores/auth'
 
 let nextId = 1
 
 export const useNotificationStore = defineStore('notifications', {
   state: () => ({
-    notifications: [], // { id, title, message, route, time, read }
+    notifications: [], // { id, title, message, route, created_at, is_read }
     toastQueue: [],
     panelOpen: false,
     pushPermission: typeof Notification !== 'undefined' ? Notification.permission : 'default',
@@ -13,10 +14,10 @@ export const useNotificationStore = defineStore('notifications', {
 
   getters: {
     unreadCount(state) {
-      return state.notifications.filter(n => !n.read).length
+      return state.notifications.filter(n => !n.is_read).length
     },
     sortedNotifications(state) {
-      return [...state.notifications].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      return [...state.notifications].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     }
   },
 
@@ -24,9 +25,18 @@ export const useNotificationStore = defineStore('notifications', {
     // ── Database API Sync ──────────────────────────────
     
     async fetchNotifications() {
+      const auth = useAuthStore()
+      if (!auth.user) return
+      
       try {
-        const res = await api.get('/notifications')
-        this.notifications = res.data
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', auth.user.id)
+          .order('created_at', { ascending: false })
+          
+        if (error) throw error
+        this.notifications = data
       } catch (err) {
         console.error('Failed to fetch notifications:', err)
       }
@@ -34,26 +44,48 @@ export const useNotificationStore = defineStore('notifications', {
     
     async markAsRead(id) {
       try {
-        await api.put(`/notifications/${id}/read`)
+        const { error } = await supabase
+          .from('notifications')
+          .update({ is_read: true })
+          .eq('id', id)
+          
+        if (error) throw error
         const n = this.notifications.find(x => x.id === id)
-        if (n) n.read = true
+        if (n) n.is_read = true
       } catch (err) {
         console.error('Failed to mark read:', err)
       }
     },
 
     async markAllAsRead() {
+      const auth = useAuthStore()
+      if (!auth.user) return
+
       try {
-        await api.put('/notifications/read-all')
-        this.notifications.forEach(n => { n.read = true })
+        const { error } = await supabase
+          .from('notifications')
+          .update({ is_read: true })
+          .eq('user_id', auth.user.id)
+          .eq('is_read', false)
+          
+        if (error) throw error
+        this.notifications.forEach(n => { n.is_read = true })
       } catch (err) {
         console.error('Failed to mark all read:', err)
       }
     },
 
     async clearAll() {
+      const auth = useAuthStore()
+      if (!auth.user) return
+
       try {
-        await api.delete('/notifications')
+        const { error } = await supabase
+          .from('notifications')
+          .delete()
+          .eq('user_id', auth.user.id)
+          
+        if (error) throw error
         this.notifications = []
       } catch (err) {
         console.error('Failed to clear all notifications:', err)
@@ -62,7 +94,12 @@ export const useNotificationStore = defineStore('notifications', {
 
     async removeNotification(id) {
       try {
-        await api.delete(`/notifications/${id}`)
+        const { error } = await supabase
+          .from('notifications')
+          .delete()
+          .eq('id', id)
+          
+        if (error) throw error
         this.notifications = this.notifications.filter(x => x.id !== id)
       } catch (err) {
         console.error('Failed to delete notification:', err)
@@ -92,7 +129,6 @@ export const useNotificationStore = defineStore('notifications', {
       }
       this.toastQueue.push(toast)
 
-      // Auto-dismiss after 4 seconds
       setTimeout(() => {
         this.dismissToast(toast.id)
       }, 4000)
@@ -139,7 +175,7 @@ export const useNotificationStore = defineStore('notifications', {
           })
         }
       } catch {
-        // Silently fail if native notifications aren't available
+        // Silently fail
       }
     }
   }

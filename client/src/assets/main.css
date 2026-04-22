@@ -3,7 +3,7 @@
    Deep navy + electric teal + amber accents
    ============================================= */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:ital,wght@0,300..700;1,300..700&family=Manrope:wght@200..800&family=Outfit:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 /* ── CSS Variables ── */
 :root {
@@ -72,6 +72,7 @@
 html {
   font-size: 16px;
   scroll-behavior: smooth;
+  overscroll-behavior: none;
 }
 
 body {
@@ -82,6 +83,31 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  
+  /* Native app feel */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior-y: none;
+}
+
+/* Allow text selection in inputs and textareas */
+input, textarea {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+/* ── Hide Scrollbars Globally for Native Feel ── */
+::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
 }
 
 /* ── Background pattern ── */
@@ -497,7 +523,11 @@ h3 { font-size: 1.25rem; }
   h1 { font-size: 1.75rem; }
   h2 { font-size: 1.35rem; }
   .container { padding: 0 16px; }
-  .page { padding: 16px 0; }
+  .page { 
+    padding: 16px 0; 
+    padding-top: max(16px, calc(16px + env(safe-area-inset-top)));
+    padding-bottom: max(100px, calc(80px + env(safe-area-inset-bottom)));
+  }
 
   .tab-bar {
     overflow-x: auto;
@@ -509,4 +539,13 @@ h3 { font-size: 1.25rem; }
     font-size: 0.8rem;
     padding: 8px 14px;
   }
+}
+
+/* ── Cloudinary Upload Widget Safe Area Fix ── */
+iframe[src*="cloudinary.com"],
+div[data-test="uw-modal-overlay"],
+.cloudinary-upload-widget {
+  padding-top: max(32px, env(safe-area-inset-top)) !important;
+  padding-bottom: max(32px, env(safe-area-inset-bottom)) !important;
+  box-sizing: border-box !important;
 }

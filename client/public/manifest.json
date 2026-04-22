@@ -1,0 +1,21 @@
+{
+  "name": "FitForge",
+  "short_name": "FitForge",
+  "description": "FitForge is a fitness app that helps you get fit with your friends and family.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#111111",
+  "icons": [
+    {
+      "src": "/fitforge_lime.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/fitforge_lime.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

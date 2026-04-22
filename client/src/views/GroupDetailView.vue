@@ -122,7 +122,25 @@ const isSubmittingLog = ref(false);
 
 const commentText = ref({}); // { 'post-1': '...', 'log-1': '...' }
 
+const fileInputPhoto = ref(null);
+const fileInputVideo = ref(null);
+const isUploadingPhoto = ref(false);
+const isUploadingVideo = ref(false);
+
 const openUploadWidget = (type = 'image') => {
+  if (type === 'video') {
+    if (isUploadingVideo.value) return;
+    fileInputVideo.value?.click();
+  } else {
+    if (isUploadingPhoto.value) return;
+    fileInputPhoto.value?.click();
+  }
+};
+
+const handleMediaUpload = async (event, type) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
   const isVideo = type === 'video';
   const currentCount = isVideo ? uploadedVideos.value.length : uploadedPhotos.value.length;
   
@@ -131,43 +149,47 @@ const openUploadWidget = (type = 'image') => {
     return;
   }
 
-  window.cloudinary.openUploadWidget(
-    {
-      cloudName: "dilpitidj",
-      uploadPreset: "fitforge",
-      sources: ["local", "camera", "url"],
-      multiple: true,
-      maxFiles: 5 - currentCount,
-      resourceType: isVideo ? 'video' : 'image',
-      clientAllowedFormats: isVideo ? ['mp4', 'mov', 'webm'] : ['jpg', 'png', 'jpeg', 'webp'],
-      styles: {
-        palette: {
-          window: "#1A1A1A",
-          sourceBg: "#242424",
-          windowBorder: "#333333",
-          tabIcon: "#2DD4BF",
-          inactiveTabIcon: "#94A3B8",
-          menuIcons: "#2DD4BF",
-          link: "#2DD4BF",
-          action: "#2DD4BF",
-          inProgress: "#F59E0B",
-          complete: "#10B981",
-          error: "#EF4444",
-          textDark: "#000000",
-          textLight: "#F8FAFC",
-        },
-      },
-    },
-    (error, result) => {
-      if (!error && result && result.event === "success") {
-        if (isVideo) {
-          uploadedVideos.value.push(result.info.secure_url);
-        } else {
-          uploadedPhotos.value.push(result.info.secure_url);
-        }
-      }
-    },
-  );
+  const maxSize = isVideo ? 100000000 : 10000000;
+  if (file.size > maxSize) {
+    alert(`File size must be less than ${maxSize / 1000000}MB`);
+    return;
+  }
+
+  if (isVideo) isUploadingVideo.value = true;
+  else isUploadingPhoto.value = true;
+  
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', 'fitforge');
+
+    const endpoint = isVideo 
+      ? 'https://api.cloudinary.com/v1_1/dho7jd4k8/video/upload'
+      : 'https://api.cloudinary.com/v1_1/dho7jd4k8/image/upload';
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (!res.ok) {
+      throw new Error('Upload failed');
+    }
+    
+    const result = await res.json();
+    if (isVideo) {
+      uploadedVideos.value.push(result.secure_url);
+    } else {
+      uploadedPhotos.value.push(result.secure_url);
+    }
+  } catch (err) {
+    console.error('Failed to upload media:', err);
+    alert('Failed to upload media. Please try again.');
+  } finally {
+    if (isVideo) isUploadingVideo.value = false;
+    else isUploadingPhoto.value = false;
+    event.target.value = '';
+  }
 };
 
 const removeVideo = (index) => {
@@ -387,6 +409,29 @@ const submitComment = async (type, id) => {
   expandedComments.value[key] = true;
 };
 
+const editingComment = ref(null);
+const editCommentText = ref("");
+
+const startEditComment = (comment) => {
+  editingComment.value = comment.id;
+  editCommentText.value = comment.content;
+};
+
+const cancelEditComment = () => {
+  editingComment.value = null;
+  editCommentText.value = "";
+};
+
+const saveEditComment = async (type, itemId, commentId) => {
+  if (!editCommentText.value.trim()) return;
+  if (type === 'post') {
+    await groups.updatePostComment(groupId.value, itemId, commentId, editCommentText.value);
+  } else {
+    await groups.updateLogComment(groupId.value, itemId, commentId, editCommentText.value);
+  }
+  cancelEditComment();
+};
+
 const handleInvite = async () => {
   inviteError.value = "";
   try {
@@ -492,8 +537,8 @@ const saveEditPost = async (postId) => {
 };
 
 // ── Delete confirmation ──
-const requestDelete = (type, id) => {
-  confirmDelete.value = { type, id };
+const requestDelete = (type, id, parentId = null, commentType = null) => {
+  confirmDelete.value = { type, id, parentId, commentType };
 };
 
 const cancelDelete = () => {
@@ -502,11 +547,17 @@ const cancelDelete = () => {
 
 const executeDelete = async () => {
   if (!confirmDelete.value) return;
-  const { type, id } = confirmDelete.value;
+  const { type, id, parentId, commentType } = confirmDelete.value;
   if (type === "log") {
     await groups.deleteLog(groupId.value, id);
   } else if (type === "post") {
     await groups.deletePost(groupId.value, id);
+  } else if (type === "comment") {
+    if (commentType === 'post') {
+      await groups.deletePostComment(groupId.value, parentId, id);
+    } else {
+      await groups.deleteLogComment(groupId.value, parentId, id);
+    }
   }
   confirmDelete.value = null;
 };
@@ -592,6 +643,12 @@ const timeAgo = (d) => {
 };
 
 const groupedFeed = computed(() => {
+  const activeUserIds = new Set(groups.members.map(m => m.userId || m.user_id));
+
+  const filterComments = (comments = []) => {
+    return comments.filter(c => activeUserIds.has(c.authorId || c.author_id));
+  };
+
   const parseDate = (d) => {
     if (typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}$/)) {
       const [y, m, day] = d.split('-').map(Number);
@@ -601,8 +658,12 @@ const groupedFeed = computed(() => {
   };
 
   const combined = [
-    ...groups.posts.map(p => ({ ...p, feedType: 'post', sortDate: parseDate(p.createdAt) })),
-    ...(groups.allLogs || []).map(l => ({ ...l, feedType: 'log', sortDate: parseDate(l.logDate) }))
+    ...groups.posts
+      .filter(p => activeUserIds.has(p.authorId || p.author_id))
+      .map(p => ({ ...p, comments: filterComments(p.postComments), feedType: 'post', sortDate: parseDate(p.createdAt) })),
+    ...(groups.allLogs || [])
+      .filter(l => activeUserIds.has(l.userId || l.user_id))
+      .map(l => ({ ...l, comments: filterComments(l.logComments), feedType: 'log', sortDate: parseDate(l.logDate) }))
   ];
 
   combined.sort((a, b) => b.sortDate - a.sortDate);
@@ -669,7 +730,9 @@ const getTargetStatus = (target) => {
 </script>
 
 <template>
-  <div class="page group-detail-page pb-32">
+  <div class="page group-detail-page">
+    <input type="file" ref="fileInputPhoto" @change="e => handleMediaUpload(e, 'image')" accept="image/*" style="display: none" />
+    <input type="file" ref="fileInputVideo" @change="e => handleMediaUpload(e, 'video')" accept="video/*" style="display: none" />
     <div class="container">
       <div v-if="loading" class="loading-state">
         <div class="skeleton h-12 w-1/2 mb-8"></div>
@@ -686,7 +749,7 @@ const getTargetStatus = (target) => {
             <h1 class="page-title">{{ groups.currentGroup.name }}</h1>
           </div>
           
-          <div class="group-overview-panel glass-card mt-6 animate-in">
+          <div class="group-overview-panel mt-6 animate-in bg-[#131313] border border-[rgba(255,255,255,0.05)] rounded-xl">
             <div class="panel-stats">
               <div class="stat-block">
                 <span class="ov-label">WEEKS LEFT</span>
@@ -790,12 +853,14 @@ const getTargetStatus = (target) => {
                 <!-- Footer: Upload + Send -->
                 <div class="create-post-footer">
                   <div class="create-post-actions">
-                     <button class="upload-action-btn" @click="openUploadWidget('image')">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                     <button class="upload-action-btn" @click="openUploadWidget('image')" :disabled="isUploadingPhoto">
+                       <svg v-if="!isUploadingPhoto" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                       <svg v-else class="btn-spinner text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" width="18" height="18"><circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                        <span>Photo</span>
                      </button>
-                     <button class="upload-action-btn" @click="openUploadWidget('video')">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                     <button class="upload-action-btn" @click="openUploadWidget('video')" :disabled="isUploadingVideo">
+                       <svg v-if="!isUploadingVideo" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                       <svg v-else class="btn-spinner text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" width="18" height="18"><circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                        <span>Video</span>
                      </button>
                   </div>
@@ -817,13 +882,13 @@ const getTargetStatus = (target) => {
             </div>
           </div>
 
-          <div v-if="groupedFeed.length === 0" class="empty-state">
-            <div class="empty-icon" style="font-size:2.5rem; margin-bottom:16px;">✨</div>
+          <div v-if="groupedFeed.length > 0" class="absolute left-[19px] top-6 bottom-0 w-[2px] bg-gradient-to-b from-[#DFFF00]/30 via-[rgba(255,255,255,0.05)] to-transparent pointer-events-none hidden sm:block"></div>
+            <div v-if="groupedFeed.length === 0" class="empty-state">
             <p style="font-size:1.1rem;">No activity yet. Be the first to post!</p>
             <p style="font-size:0.85rem; color:var(--text-muted); margin-top:6px;">Share updates, progress photos, or motivate your team.</p>
           </div>
           
-          <div v-for="section in groupedFeed" :key="section.date" class="feed-section mb-10">
+          <div v-for="section in groupedFeed" :key="section.date" class="feed-section relative sm:pl-12 mb-10">
             <div class="feed-date-divider">
                <div class="feed-date-line"></div>
                <span class="feed-date-badge">{{ section.date }}</span>
@@ -836,7 +901,7 @@ const getTargetStatus = (target) => {
                 <template v-if="editingPost === item.id">
                   <!-- EDIT POST — Premium Inline Editor -->
                   <div class="create-post-wrapper">
-                    <div class="create-post-gradient-border" style="box-shadow: 0 0 40px rgba(217,255,77,0.15);">
+                    <div class="create-post-gradient-border" style="box-shadow: 0 0 40px rgba(223, 255, 0,0.15); border-left: 2px solid #DFFF00;">
                       <div class="create-post-inner">
                         <div class="create-post-header" style="justify-content: space-between;">
                           <div style="display: flex; gap: 12px; align-items: center;">
@@ -844,7 +909,7 @@ const getTargetStatus = (target) => {
                             <div v-else class="create-post-avatar create-post-avatar-placeholder">{{ getInitials(auth.user?.displayName) }}</div>
                             <div class="create-post-user">
                               <span class="create-post-name">{{ auth.user?.displayName }}</span>
-                              <span class="create-post-hint" style="color: var(--accent-lime); font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                              <span class="create-post-hint" style="color: #DFFF00; font-weight: 700; display: flex; align-items: center; gap: 4px;">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                                 Editing Post
                               </span>
@@ -936,18 +1001,28 @@ const getTargetStatus = (target) => {
                         <div v-for="comment in item.comments" :key="comment.id" class="feed-comment group">
                           <img v-if="comment.authorAvatar" :src="comment.authorAvatar" class="feed-comment-avatar" />
                           <div v-else class="feed-comment-avatar feed-avatar-placeholder">{{ getInitials(comment.authorName) }}</div>
-                          <div class="feed-comment-body">
+                          <div v-if="editingComment === comment.id" class="feed-comment-body w-full">
+                             <textarea v-model="editCommentText" class="form-input w-full p-2 text-sm max-h-[100px] mb-2 text-white bg-dark border-white/20" rows="2"></textarea>
+                             <div class="flex gap-2 mt-1 justify-end">
+                                <button class="btn btn-secondary btn-sm" @click="cancelEditComment">Cancel</button>
+                                <button class="btn btn-primary btn-sm" @click="saveEditComment('post', item.id, comment.id)">Save</button>
+                             </div>
+                          </div>
+                          <div v-else class="feed-comment-body">
                             <div class="feed-comment-meta">
                               <span class="feed-comment-name">{{ comment.authorName }}</span>
                               <span class="feed-comment-time">{{ timeAgo(comment.createdAt) }}</span>
                             </div>
                             <p class="feed-comment-text">{{ comment.content }}</p>
                           </div>
-                          <button v-if="comment.authorId === auth.user?.id" 
-                                  class="feed-comment-delete"
-                                  @click="groups.deletePostComment(groupId, item.id, comment.id)">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                          </button>
+                          <div v-if="comment.authorId === auth.user?.id && editingComment !== comment.id" class="flex flex-col gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ml-auto">
+                            <button class="action-btn-minimal" @click="startEditComment(comment)" title="Edit comment">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                            </button>
+                            <button class="action-btn-minimal text-red" @click="requestDelete('comment', comment.id, item.id, 'post')" title="Delete comment">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -1014,18 +1089,28 @@ const getTargetStatus = (target) => {
                         <div v-for="comment in item.comments" :key="comment.id" class="feed-comment group">
                           <img v-if="comment.authorAvatar" :src="comment.authorAvatar" class="feed-comment-avatar" />
                           <div v-else class="feed-comment-avatar feed-avatar-placeholder">{{ getInitials(comment.authorName) }}</div>
-                          <div class="feed-comment-body">
+                          <div v-if="editingComment === comment.id" class="feed-comment-body w-full">
+                             <textarea v-model="editCommentText" class="form-input w-full p-2 text-sm max-h-[100px] mb-2 text-white bg-dark border-white/20" rows="2"></textarea>
+                             <div class="flex gap-2 mt-1 justify-end">
+                                <button class="btn btn-secondary btn-sm" @click="cancelEditComment">Cancel</button>
+                                <button class="btn btn-primary btn-sm" @click="saveEditComment('log', item.id, comment.id)">Save</button>
+                             </div>
+                          </div>
+                          <div v-else class="feed-comment-body">
                             <div class="feed-comment-meta">
                               <span class="feed-comment-name">{{ comment.authorName }}</span>
                               <span class="feed-comment-time">{{ timeAgo(comment.createdAt) }}</span>
                             </div>
                             <p class="feed-comment-text">{{ comment.content }}</p>
                           </div>
-                          <button v-if="comment.authorId === auth.user?.id" 
-                                  class="feed-comment-delete"
-                                  @click="groups.deleteLogComment(groupId, item.id, comment.id)">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                          </button>
+                          <div v-if="comment.authorId === auth.user?.id && editingComment !== comment.id" class="flex flex-col gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ml-auto">
+                            <button class="action-btn-minimal" @click="startEditComment(comment)" title="Edit comment">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                            </button>
+                            <button class="action-btn-minimal text-red" @click="requestDelete('comment', comment.id, item.id, 'log')" title="Delete comment">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -1054,7 +1139,7 @@ const getTargetStatus = (target) => {
           </div>
 
           <div class="leaderboard-list mt-2">
-            <div v-for="entry in groups.leaderboard" :key="entry.userId" class="leaderboard-row glass-card" :class="{ 'self-row': entry.userId === auth.user?.id }">
+            <div v-for="entry in groups.leaderboard" :key="entry.userId" class="leaderboard-row " :class="{ 'self-row': entry.userId === auth.user?.id }">
               <div class="lb-rank-col">
                  <span v-if="getMedal(entry.rank)" class="lb-medal">{{ getMedal(entry.rank).icon }}</span>
                  <span v-else class="lb-rank-num">{{ entry.rank }}</span>
@@ -1086,9 +1171,9 @@ const getTargetStatus = (target) => {
                  <div class="lb-progress-ring">
                     <svg viewBox="0 0 36 36" class="circular-chart-sm">
                       <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-                      <path class="circle" :style="{ strokeDasharray: Math.min(100, Math.max(0, entry.progressPercent)) + ', 100' }" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                      <path class="circle" :style="{ strokeDasharray: Math.min(100, Math.max(0, entry.progressPercent || 0)) + ', 100' }" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
                     </svg>
-                    <span class="lb-progress-val">{{ Math.round(entry.progressPercent) }}%</span>
+                    <span class="lb-progress-val">{{ Math.round(entry.progressPercent || 0) }}%</span>
                  </div>
                  <button v-if="entry.userId !== auth.user?.id" class="btn-profile-peek" @click="viewMemberLogs(entry)">
                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -1097,7 +1182,7 @@ const getTargetStatus = (target) => {
             </div>
           </div>
           
-          <div class="mt-8">
+          <div class="mt-10">
             <div class="flex justify-between items-center mb-6">
               <h2 class="text-xl font-bold font-heading text-white">Activity Calendar</h2>
               
@@ -1127,7 +1212,7 @@ const getTargetStatus = (target) => {
           
           <div class="targets-scroll mt-4">
             <div v-for="target in groups.targets" :key="target.id" 
-                 class="target-card-premium glass-card" 
+                 class="target-card-premium " 
                  :class="{ 
                    'current-week': target.actualWeight,
                    'target-status-met': getTargetStatus(target) === 'met',
@@ -1160,7 +1245,7 @@ const getTargetStatus = (target) => {
             <p>No activity recorded yet.</p>
           </div>
           
-          <div v-for="log in groups.logs" :key="log.id" class="training-log-card glass-card">
+          <div v-for="log in groups.logs" :key="log.id" class="training-log-card ">
             <template v-if="editingLog === log.id">
               <div class="edit-ui-container">
                 <div class="grid grid-cols-2 gap-4">
@@ -1185,7 +1270,10 @@ const getTargetStatus = (target) => {
                       <img :src="url" />
                       <button class="remove-photo-over" @click="removePhoto(idx)">×</button>
                     </div>
-                    <button v-if="uploadedPhotos.length < 5" class="add-photo-block" @click="openUploadWidget">+</button>
+                    <button v-if="uploadedPhotos.length < 5" class="add-photo-block" @click="openUploadWidget()" :disabled="isUploadingPhoto">
+                      <span v-if="!isUploadingPhoto">+</span>
+                      <svg v-else class="btn-spinner text-current mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" width="18" height="18"><circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    </button>
                   </div>
                 </div>
                 <div class="flex items-center gap-2 mt-4">
@@ -1246,7 +1334,7 @@ const getTargetStatus = (target) => {
           </div>
 
           <div class="member-manage-list mt-4 grid gap-4">
-            <div v-for="member in groups.members" :key="member.userId" class="member-manage-card glass-card flex items-center justify-between p-4">
+            <div v-for="member in groups.members" :key="member.userId" class="member-manage-card  flex items-center justify-between p-4">
                <div class="flex items-center gap-4">
                   <img v-if="member.avatarUrl" :src="member.avatarUrl" class="avatar avatar-md object-cover" />
                   <div v-else class="avatar avatar-md avatar-placeholder">{{ getInitials(member.displayName) }}</div>
@@ -1263,12 +1351,12 @@ const getTargetStatus = (target) => {
                    <div class="text-xs text-muted uppercase tracking-wider font-bold">Goal</div>
                    <div class="font-heading font-bold text-sm sm:text-lg text-secondary">{{ member.startWeight }} → <span class="text-lime">{{ member.goalWeight }}</span></div>
                  </div>
-                 <div class="member-radial-progress relative w-12 h-12 flex-shrink-0 flex items-center justify-center">
+                 <div class="member-radial-progress relative w-12 h-12 flex-shrink-0">
                     <svg viewBox="0 0 36 36" class="circular-chart-xs absolute inset-0 w-full h-full drop-shadow-lg">
                        <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-                       <path class="circle" :style="{ strokeDasharray: Math.min(100, Math.max(0, member.progressPercent)) + ', 100' }" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                       <path class="circle" :style="{ strokeDasharray: Math.min(100, Math.max(0, groups.leaderboard.find(l => l.userId === member.userId)?.progressPercent || 0)) + ', 100' }" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
                     </svg>
-                    <div class="relative z-10 text-[10px] font-bold mt-[1px]">{{ Math.round(member.progressPercent) }}%</div>
+                    <div class="lb-progress-val" style="z-index: 10;">{{ Math.round(groups.leaderboard.find(l => l.userId === member.userId)?.progressPercent || 0) }}%</div>
                  </div>
                </div>
             </div>
@@ -1277,7 +1365,7 @@ const getTargetStatus = (target) => {
 
         <!-- ═══════════════ SETTINGS TAB ═══════════════ -->
         <div v-if="activeTab === 'settings'" class="tab-content animate-in">
-          <div class="settings-group glass-card">
+          <div class="settings-group ">
             <h3>Invite Teammates</h3>
             <p class="text-secondary text-sm mb-4">Grow your squad and boost motivation by generating a shareable link.</p>
             <div>
@@ -1295,7 +1383,7 @@ const getTargetStatus = (target) => {
             </div>
           </div>
 
-          <div class="settings-group glass-card mt-6">
+          <div class="settings-group  mt-6">
             <h3>Group Members</h3>
             <div class="member-manage-list mt-4 grid gap-3">
               <div v-for="member in groups.members" :key="member.userId" class="member-manage-card flex items-center justify-between p-3 bg-dark/30 rounded-lg">
@@ -1314,7 +1402,7 @@ const getTargetStatus = (target) => {
             </div>
           </div>
 
-          <div class="settings-group glass-card mt-6">
+          <div class="settings-group  mt-6">
             <h3>Squad Info</h3>
             <div class="info-grid mt-4">
                <div class="info-item">
@@ -1384,12 +1472,14 @@ const getTargetStatus = (target) => {
                 <!-- Footer -->
                 <div class="create-post-footer">
                   <div class="create-post-actions">
-                     <button class="upload-action-btn" @click="openUploadWidget('image')">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                     <button class="upload-action-btn" @click="openUploadWidget('image')" :disabled="isUploadingPhoto">
+                       <svg v-if="!isUploadingPhoto" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                       <svg v-else class="btn-spinner text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" width="18" height="18"><circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                        <span>Photo</span>
                      </button>
-                     <button class="upload-action-btn" @click="openUploadWidget('video')">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                     <button class="upload-action-btn" @click="openUploadWidget('video')" :disabled="isUploadingVideo">
+                       <svg v-if="!isUploadingVideo" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                       <svg v-else class="btn-spinner text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" width="18" height="18"><circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                        <span>Video</span>
                      </button>
                   </div>
@@ -1415,7 +1505,7 @@ const getTargetStatus = (target) => {
           </div>
 
           <!-- LOG ACTIVITY MODE -->
-          <div v-else class="modal-premium glass-card animate-scale">
+          <div v-else class="modal-premium  animate-scale">
             <h2 class="modal-headline">LOG ACTIVITY</h2>
             
             <div class="grid grid-cols-2 gap-6 mt-6">
@@ -1441,9 +1531,10 @@ const getTargetStatus = (target) => {
                   <img :src="url" />
                   <button class="p-remove-btn" @click="removePhoto(idx)">×</button>
                 </div>
-                <button v-if="uploadedPhotos.length < 5" class="p-add-trigger" @click="openUploadWidget">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-                  <span>Add Photo</span>
+                <button v-if="uploadedPhotos.length < 5" class="p-add-trigger" @click="openUploadWidget()" :disabled="isUploadingPhoto">
+                  <svg v-if="!isUploadingPhoto" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                  <svg v-else class="btn-spinner text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" width="24" height="24"><circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  <span>{{ isUploadingPhoto ? 'Uploading...' : 'Add Photo' }}</span>
                 </button>
               </div>
             </div>
@@ -1470,10 +1561,12 @@ const getTargetStatus = (target) => {
       <!-- ═══════════════ DELETE CONFIRM MODAL ═══════════════ -->
       <Teleport to="body">
         <div v-if="confirmDelete" class="modal-backdrop-blur" @click.self="cancelDelete">
-          <div class="modal-premium glass-card confirm-alert animate-scale">
+          <div class="modal-premium  confirm-alert animate-scale">
             <div class="alert-icon"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" class="inline-block text-coral mb-2" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-            <h3>REMOVE ENTRY?</h3>
-            <p>This action is final and cannot be reverted.</p>
+            <h3 v-if="confirmDelete.type === 'comment'">DELETE COMMENT?</h3>
+            <h3 v-else>REMOVE ENTRY?</h3>
+            <p v-if="confirmDelete.type === 'comment'">Are you sure you want to delete this comment? This action is final.</p>
+            <p v-else>This action is final and cannot be reverted.</p>
             <div class="flex gap-4 mt-8 w-full">
               <button class="btn btn-secondary flex-grow shadow-lg font-bold" @click="cancelDelete">Cancel</button>
               <button class="btn btn-coral flex-grow shadow-lg font-bold" @click="executeDelete">Delete</button>
@@ -1485,7 +1578,7 @@ const getTargetStatus = (target) => {
       <!-- ═══════════════ GROUP ACTION CONFIRM MODAL ═══════════════ -->
       <Teleport to="body">
         <div v-if="confirmGroupAction" class="modal-backdrop-blur" @click.self="cancelGroupAction">
-          <div class="modal-premium glass-card confirm-alert animate-scale">
+          <div class="modal-premium  confirm-alert animate-scale">
             <div class="alert-icon"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" class="inline-block text-coral mb-2" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
             <h3 v-if="confirmGroupAction === 'delete'">DELETE GROUP?</h3>
             <h3 v-else>LEAVE GROUP?</h3>
@@ -1511,7 +1604,7 @@ const getTargetStatus = (target) => {
 /* ═══════ GROUP DETAIL PAGE — COMPLETE REDESIGN ═══════ */
 
 .group-detail-page {
-  background: var(--bg-primary);
+  background: #0e0e0e;
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
@@ -1527,7 +1620,7 @@ const getTargetStatus = (target) => {
   transform: translateX(-50%);
   width: 140vw;
   height: 60vh;
-  background: radial-gradient(ellipse at top, rgba(217,255,77,0.12) 0%, rgba(179,153,255,0.06) 40%, transparent 70%);
+  background: radial-gradient(ellipse at top, rgba(223, 255, 0,0.12) 0%, rgba(179,153,255,0.06) 40%, transparent 70%);
   z-index: -1;
   pointer-events: none;
 }
@@ -1554,9 +1647,9 @@ const getTargetStatus = (target) => {
   flex-shrink: 0;
 }
 .back-link:hover {
-  background: rgba(217,255,77,0.1);
-  border-color: var(--accent-lime);
-  color: var(--accent-lime);
+  background: rgba(223, 255, 0,0.1);
+  border-color: #DFFF00;
+  color: #DFFF00;
   transform: translateX(-3px);
 }
 
@@ -1564,7 +1657,7 @@ const getTargetStatus = (target) => {
   font-size: clamp(1.6rem, 5vw, 2.8rem);
   font-weight: 900;
   letter-spacing: -0.04em;
-  background: linear-gradient(135deg, #fff 30%, var(--accent-lime));
+  background: linear-gradient(135deg, #fff 30%, #DFFF00);
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
   line-height: 1.15;
@@ -1598,8 +1691,8 @@ const getTargetStatus = (target) => {
 .stat-block { text-align: center; display: flex; flex-direction: column; gap: 4px; }
 .stat-divider { width: 1px; background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.1), transparent); }
 .ov-label { font-size: 0.65rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.12em; }
-.ov-value { font-size: 1.6rem; font-weight: 900; font-family: var(--font-heading); letter-spacing: -0.02em; }
-.text-lime { color: var(--accent-lime); text-shadow: 0 0 8px rgba(217,255,77,0.25); }
+.ov-value { font-size: 1.6rem; font-weight: 900; font-family: \'Space Grotesk\', sans-serif; letter-spacing: -0.02em; }
+.text-lime { color: #DFFF00; text-shadow: 0 0 8px rgba(223, 255, 0,0.25); }
 .text-coral { color: var(--accent-coral); text-shadow: 0 0 8px rgba(255,112,67,0.25); }
 
 .panel-desc {
@@ -1641,10 +1734,10 @@ const getTargetStatus = (target) => {
 }
 
 .objective-edit-btn:hover {
-  background: rgba(217,255,77,0.15);
-  color: var(--accent-lime);
-  border-color: rgba(217,255,77,0.3);
-  box-shadow: 0 0 20px rgba(217,255,77,0.15);
+  background: rgba(223, 255, 0,0.15);
+  color: #DFFF00;
+  border-color: rgba(223, 255, 0,0.3);
+  box-shadow: 0 0 20px rgba(223, 255, 0,0.15);
   transform: scale(1.1);
 }
 
@@ -1666,7 +1759,7 @@ const getTargetStatus = (target) => {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--accent-lime);
+  color: #DFFF00;
   margin-bottom: 12px;
   text-align: left;
 }
@@ -1685,10 +1778,10 @@ const getTargetStatus = (target) => {
 }
 
 .objective-editor-glass:focus-within {
-  border-color: rgba(217,255,77,0.35);
+  border-color: rgba(223, 255, 0,0.35);
   box-shadow:
     0 8px 32px rgba(0,0,0,0.4),
-    0 0 30px rgba(217,255,77,0.08),
+    0 0 30px rgba(223, 255, 0,0.08),
     inset 0 1px 0 rgba(255,255,255,0.04);
 }
 
@@ -1747,18 +1840,18 @@ const getTargetStatus = (target) => {
   font-size: 0.78rem;
   font-weight: 700;
   border-radius: 8px;
-  background: var(--accent-lime);
+  background: #DFFF00;
   color: #111;
   border: none;
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   letter-spacing: 0.03em;
-  box-shadow: 0 4px 18px rgba(217,255,77,0.25);
+  box-shadow: 0 4px 18px rgba(223, 255, 0,0.25);
 }
 
 .objective-btn-save:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(217,255,77,0.35);
+  box-shadow: 0 6px 24px rgba(223, 255, 0,0.35);
   filter: brightness(1.05);
 }
 
@@ -1779,7 +1872,7 @@ const getTargetStatus = (target) => {
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 12px;
   color: var(--text-secondary);
-  font-family: var(--font-heading);
+  font-family: \'Space Grotesk\', sans-serif;
   font-weight: 700;
   font-size: 0.85rem;
   white-space: nowrap;
@@ -1794,14 +1887,14 @@ const getTargetStatus = (target) => {
   border-color: rgba(255,255,255,0.15);
 }
 .group-tab-chip.active {
-  background: linear-gradient(135deg, rgba(217,255,77,0.15), rgba(217,255,77,0.05));
-  color: var(--accent-lime);
-  border-color: rgba(217,255,77,0.4);
-  box-shadow: 0 0 16px rgba(217,255,77,0.1);
+  background: linear-gradient(135deg, rgba(223, 255, 0,0.15), rgba(223, 255, 0,0.05));
+  color: #DFFF00;
+  border-color: rgba(223, 255, 0,0.4);
+  box-shadow: 0 0 16px rgba(223, 255, 0,0.1);
 }
 
 /* ── TAB CONTENT ── */
-.tab-content { display: flex; flex-direction: column; gap: 16px; }
+.tab-content { display: flex; flex-direction: column; gap: 16px; padding-bottom: 80px; }
 
 /* ── FEED ── */
 .post-card-premium {
@@ -1821,7 +1914,7 @@ const getTargetStatus = (target) => {
   content: '';
   position: absolute; top: 0; left: 0;
   width: 3px; height: 0%;
-  background: var(--accent-lime);
+  background: #DFFF00;
   transition: height 0.3s ease;
   border-radius: 0 0 3px 0;
 }
@@ -1843,7 +1936,7 @@ const getTargetStatus = (target) => {
   background: rgba(255,255,255,0.05);
 }
 .post-type-tag.motivation { background: rgba(255,112,67,0.12); color: var(--accent-coral); }
-.post-type-tag.advice { background: rgba(217,255,77,0.1); color: var(--accent-lime); }
+.post-type-tag.advice { background: rgba(223, 255, 0,0.1); color: #DFFF00; }
 .post-type-tag.announcement { background: rgba(179,153,255,0.1); color: var(--accent-purple); }
 
 .post-actions-menu { display: flex; gap: 4px; flex-shrink: 0; }
@@ -1853,15 +1946,15 @@ const getTargetStatus = (target) => {
 .feed-section { position: relative; }
 .date-header-premium {
   display: flex; align-items: center; gap: 16px; position: sticky; top: 0;
-  background: var(--bg-primary); z-index: 20; padding: 12px 0;
+  background: #0e0e0e; z-index: 20; padding: 12px 0;
   margin-top: -12px; /* Offset padding to align with flow */
 }
 .date-text {
-  font-family: var(--font-heading); font-weight: 900; font-size: 0.9rem;
-  text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent-lime);
+  font-family: \'Space Grotesk\', sans-serif; font-weight: 900; font-size: 0.9rem;
+  text-transform: uppercase; letter-spacing: 0.15em; color: #DFFF00;
   white-space: nowrap;
 }
-.date-line { height: 1px; flex-grow: 1; background: linear-gradient(90deg, rgba(217,255,77,0.2), transparent); }
+.date-line { height: 1px; flex-grow: 1; background: linear-gradient(90deg, rgba(223, 255, 0,0.2), transparent); }
 
 .log-author-info { display: flex; align-items: center; gap: 12px; }
 
@@ -1877,20 +1970,20 @@ const getTargetStatus = (target) => {
 }
 .leaderboard-row:hover { background: rgba(255,255,255,0.06); transform: translateX(4px); }
 .leaderboard-row.self-row {
-  border-color: rgba(217,255,77,0.3);
-  background: linear-gradient(90deg, rgba(217,255,77,0.06), transparent);
-  box-shadow: 0 0 20px rgba(217,255,77,0.08);
+  border-color: rgba(223, 255, 0,0.3);
+  background: linear-gradient(90deg, rgba(223, 255, 0,0.06), transparent);
+  box-shadow: 0 0 20px rgba(223, 255, 0,0.08);
 }
 
 .lb-rank-col { width: 40px; display: flex; justify-content: center; flex-shrink: 0; }
 .lb-medal { font-size: 1.5rem; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4)); }
-.lb-rank-num { font-size: 1.2rem; font-weight: 900; color: rgba(255,255,255,0.15); font-family: var(--font-heading); }
+.lb-rank-num { font-size: 1.2rem; font-weight: 900; color: rgba(255,255,255,0.15); font-family: \'Space Grotesk\', sans-serif; }
 
 .lb-member-col { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; }
 .lb-member-details { min-width: 0; }
 .member-name { font-weight: 700; font-size: 1rem; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .member-stats-mini { display: flex; gap: 12px; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); }
-.lb-change-text.good { color: var(--accent-lime); }
+.lb-change-text.good { color: #DFFF00; }
 .lb-change-text.bad { color: var(--accent-coral); }
 
 .lb-progress-col { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
@@ -1898,7 +1991,7 @@ const getTargetStatus = (target) => {
 
 .circular-chart-sm { width: 100%; height: 100%; }
 .circle-bg { fill: none; stroke: rgba(255,255,255,0.04); stroke-width: 3; }
-.circle { fill: none; stroke: var(--accent-lime); stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray 0.8s ease-out; }
+.circle { fill: none; stroke: #DFFF00; stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray 0.8s ease-out; }
 
 .lb-progress-val {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
@@ -1914,7 +2007,7 @@ const getTargetStatus = (target) => {
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: all 0.25s;
 }
-.btn-profile-peek:hover { background: var(--accent-lime); color: #000; transform: scale(1.08); }
+.btn-profile-peek:hover { background: #DFFF00; color: #000; transform: scale(1.08); }
 
 /* ── PROGRESS ── */
 .progress-section-header {
@@ -1943,13 +2036,13 @@ const getTargetStatus = (target) => {
 }
 .target-card-premium:hover { transform: none; background: rgba(255,255,255,0.04); }
 .target-card-premium.current-week {
-  border-color: rgba(217,255,77,0.4);
-  background: linear-gradient(135deg, rgba(217,255,77,0.06), transparent);
-  box-shadow: 0 4px 20px rgba(217,255,77,0.08);
+  border-color: rgba(223, 255, 0,0.4);
+  background: linear-gradient(135deg, rgba(223, 255, 0,0.06), transparent);
+  box-shadow: 0 4px 20px rgba(223, 255, 0,0.08);
 }
 
 .target-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.target-week-badge { font-size: 0.7rem; font-weight: 800; color: var(--accent-lime); text-transform: uppercase; letter-spacing: 0.1em; }
+.target-week-badge { font-size: 0.7rem; font-weight: 800; color: #DFFF00; text-transform: uppercase; letter-spacing: 0.1em; }
 .coach-label {
   font-size: 0.6rem; background: var(--accent-purple); color: #000;
   padding: 3px 7px; border-radius: 6px; font-weight: 800; text-transform: uppercase;
@@ -1961,11 +2054,11 @@ const getTargetStatus = (target) => {
   margin-bottom: 10px;
   letter-spacing: 0.02em;
 }
-.target-weight-val { font-size: 2rem; font-weight: 900; font-family: var(--font-heading); color: #fff; letter-spacing: -0.02em; }
+.target-weight-val { font-size: 2rem; font-weight: 900; font-family: \'Space Grotesk\', sans-serif; color: #fff; letter-spacing: -0.02em; }
 .target-weight-val span { font-size: 0.85rem; opacity: 0.4; font-weight: 600; }
 
 .target-actual-info { margin-top: 10px; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
-.target-actual-info::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-lime); box-shadow: 0 0 6px var(--accent-lime); }
+.target-actual-info::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #DFFF00; box-shadow: 0 0 6px #DFFF00; }
 .target-actual-info.not-logged::before { background: rgba(255,255,255,0.15); box-shadow: none; }
 .target-actual-info.not-logged { color: var(--text-muted); font-style: italic; }
 
@@ -2021,7 +2114,7 @@ const getTargetStatus = (target) => {
   padding: 6px 12px; background: rgba(0,0,0,0.4); border-radius: 8px;
   font-weight: 700; font-size: 0.85rem; display: flex; align-items: center;
 }
-.log-pill.weight { color: var(--accent-lime); border: 1px solid rgba(217,255,77,0.15); }
+.log-pill.weight { color: #DFFF00; border: 1px solid rgba(223, 255, 0,0.15); }
 .log-pill.energy { color: var(--accent-coral); border: 1px solid rgba(255,112,67,0.15); }
 
 .log-actions-menu { display: flex; gap: 4px; flex-shrink: 0; }
@@ -2061,7 +2154,7 @@ option{
   display: inline-flex; align-items: center; justify-content: center;
 }
 .action-btn-minimal:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.15); }
-.action-btn-minimal:hover .action-icon { stroke: var(--accent-lime); }
+.action-btn-minimal:hover .action-icon { stroke: #DFFF00; }
 .action-btn-minimal:hover .action-icon-danger { stroke: var(--accent-coral); }
 
 /* ── EDIT UI ── */
@@ -2095,7 +2188,7 @@ option{
 .text-xs { font-size: 0.75rem; }
 .text-lg { font-size: 1.125rem; }
 .font-bold { font-weight: 700; }
-.font-heading { font-family: var(--font-heading); }
+.font-heading { font-family: \'Space Grotesk\', sans-serif; }
 .leading-tight { line-height: 1.2; }
 .text-secondary { color: var(--text-secondary); }
 .text-muted { color: var(--text-muted); }
@@ -2129,7 +2222,7 @@ option{
   color: var(--text-muted); background: transparent; cursor: pointer;
   font-size: 1.5rem; transition: all 0.2s;
 }
-.add-photo-block:hover { border-color: var(--accent-lime); color: var(--accent-lime); }
+.add-photo-block:hover { border-color: #DFFF00; color: #DFFF00; }
 
 /* ── COACH TAB ── */
 .coach-post-interface {
@@ -2148,15 +2241,15 @@ option{
   border-radius: 10px;
   font-size: 0.85rem; cursor: pointer;
   transition: all 0.25s ease;
-  font-family: var(--font-heading); font-weight: 700;
+  font-family: \'Space Grotesk\', sans-serif; font-weight: 700;
   color: var(--text-secondary);
 }
 .custom-radio:hover { background: rgba(255,255,255,0.08); color: #fff; }
 .custom-radio.active {
-  background: rgba(217,255,77,0.08);
-  border-color: rgba(217,255,77,0.4);
-  color: var(--accent-lime);
-  box-shadow: 0 0 12px rgba(217,255,77,0.1);
+  background: rgba(223, 255, 0,0.08);
+  border-color: rgba(223, 255, 0,0.4);
+  color: #DFFF00;
+  box-shadow: 0 0 12px rgba(223, 255, 0,0.1);
 }
 
 .btn-post-send {
@@ -2165,9 +2258,9 @@ option{
   background: var(--gradient-lime); border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
   color: #000; border: none; cursor: pointer;
-  transition: all 0.25s; box-shadow: 0 4px 12px rgba(217,255,77,0.25);
+  transition: all 0.25s; box-shadow: 0 4px 12px rgba(223, 255, 0,0.25);
 }
-.btn-post-send:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(217,255,77,0.4); }
+.btn-post-send:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(223, 255, 0,0.4); }
 .btn-post-send:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
 
 /* Member management - Coach */
@@ -2209,8 +2302,8 @@ option{
 
 .invite-success-box {
   padding: 16px 20px;
-  background: rgba(217,255,77,0.04);
-  border: 1px solid rgba(217,255,77,0.15);
+  background: rgba(223, 255, 0,0.04);
+  border: 1px solid rgba(223, 255, 0,0.15);
   border-radius: 14px;
 }
 .invite-code {
@@ -2227,11 +2320,11 @@ option{
   background: var(--gradient-lime);
   border-radius: 18px; color: #000;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 28px rgba(217,255,77,0.35);
+  box-shadow: 0 8px 28px rgba(223, 255, 0,0.35);
   border: none; cursor: pointer; z-index: 100;
   transition: all 0.3s ease;
 }
-.fab-btn-premium:hover { transform: translateY(-3px) rotate(90deg); box-shadow: 0 12px 36px rgba(217,255,77,0.5); }
+.fab-btn-premium:hover { transform: translateY(-3px) rotate(90deg); box-shadow: 0 12px 36px rgba(223, 255, 0,0.5); }
 .fab-btn-premium svg { width: 28px; height: 28px; }
 
 /* ── MODALS ── */
@@ -2265,7 +2358,7 @@ option{
 
 .photo-preview-item {
   aspect-ratio: 1; position: relative; border-radius: 12px; overflow: hidden;
-  border: 2px solid var(--accent-lime); box-shadow: 0 2px 10px rgba(217,255,77,0.15);
+  border: 2px solid #DFFF00; box-shadow: 0 2px 10px rgba(223, 255, 0,0.15);
 }
 .photo-preview-item img { width: 100%; height: 100%; object-fit: cover; }
 
@@ -2284,7 +2377,7 @@ option{
   color: var(--text-secondary); background: transparent;
   cursor: pointer; transition: all 0.25s; font-weight: 600; font-size: 0.8rem;
 }
-.p-add-trigger:hover { border-color: var(--accent-lime); color: var(--accent-lime); background: rgba(217,255,77,0.04); }
+.p-add-trigger:hover { border-color: #DFFF00; color: #DFFF00; background: rgba(223, 255, 0,0.04); }
 
 .modal-footer-btns { display: flex; gap: 12px; }
 
@@ -2366,33 +2459,92 @@ option{
 .video-item { aspect-ratio: 16/9; position: relative; }
 .video-item video { width: 100%; height: 100%; }
 
-/* ── COMMENTS ── */
-.comments-area {
-  display: flex;
-  flex-direction: column;
+/* ── COMMENTS REFRESH ── */
+.feed-comments-section {
+  margin-top: 20px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 16px;
 }
-.comment-item {
-  animation: fadeIn 0.3s ease;
+.feed-comment-count {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.85rem; font-weight: 700; color: var(--text-muted);
+  cursor: pointer; background: transparent; border: none; padding: 6px 12px;
+  border-radius: 10px; transition: all 0.2s ease; margin-left: -8px;
 }
-.comment-item .avatar-xs {
-  width: 28px; height: 28px; border-radius: 50%; font-size: 10px; flex-shrink: 0;
-}
-.comment-input-box {
-  background: rgba(0,0,0,0.2);
-  padding: 4px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.05);
-  margin-top: 12px;
-}
-.comment-input-box .form-input {
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+.feed-comment-count:hover { color: #DFFF00; background: rgba(223, 255, 0,0.08); }
+
+.feed-comments-list {
+  display: flex; flex-direction: column; gap: 14px; margin-top: 16px;
 }
 
-.avatar-xs { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.1); border-radius: 50%; font-weight: 700; color: #fff; }
+.feed-comment {
+  display: flex; gap: 14px; align-items: flex-start;
+  padding: 16px; border-radius: 16px;
+  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04);
+  transition: all 0.3s ease; position: relative;
+}
+.feed-comment:hover {
+  background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08);
+}
 
-@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+.feed-comment-avatar {
+  width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.1); flex-shrink: 0;
+  object-fit: cover;
+}
+
+.feed-comment-body {
+  flex: 1; min-width: 0;
+}
+
+.feed-comment-meta {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap;
+}
+.feed-comment-name {
+  font-size: 0.9rem; font-weight: 800; color: #fff; line-height: 1.2; font-family: \'Space Grotesk\', sans-serif;
+}
+.feed-comment-time {
+  font-size: 0.75rem; color: var(--text-muted); font-weight: 600;
+}
+.feed-comment-text {
+  font-size: 0.95rem; color: var(--text-secondary); line-height: 1.6; word-wrap: break-word;
+}
+
+.feed-comment-input {
+  display: flex; align-items: flex-end; gap: 12px; margin-top: 20px;
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 20px; padding: 12px 16px; transition: all 0.3s ease;
+  box-shadow: inset 0 4px 10px rgba(0,0,0,0.2);
+}
+.feed-comment-input:focus-within {
+  border-color: rgba(223, 255, 0,0.3); background: rgba(0,0,0,0.4);
+  box-shadow: inset 0 4px 10px rgba(0,0,0,0.2), 0 0 0 1px rgba(223, 255, 0,0.2);
+}
+.feed-comment-input textarea {
+  flex: 1; background: transparent; border: none; color: #fff; font-size: 0.95rem;
+  resize: none; outline: none; line-height: 1.5; max-height: 120px; padding: 4px 0;
+}
+.feed-comment-input textarea::placeholder { color: var(--text-muted); font-style: italic; }
+.feed-comment-input button {
+  width: 40px; height: 40px; border-radius: 14px; background: #DFFF00; color: #000;
+  display: flex; align-items: center; justify-content: center; border: none; cursor: pointer;
+  flex-shrink: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 14px rgba(223, 255, 0,0.25);
+}
+.feed-comment-input button:disabled { opacity: 0.3; cursor: not-allowed; transform: none; box-shadow: none; background: rgba(255,255,255,0.2); color: rgba(255,255,255,0.5); }
+.feed-comment-input button:not(:disabled):hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 6px 20px rgba(223, 255, 0,0.4); }
+
+/* Edit comment state inline styling */
+.feed-comment .form-input {
+  border-radius: 12px; box-shadow: inset 0 2px 8px rgba(0,0,0,0.3); border: 1px solid rgba(223, 255, 0,0.2); background: rgba(0,0,0,0.4);
+}
+.feed-comment .form-input:focus {
+  border-color: #DFFF00; outline: none; box-shadow: inset 0 2px 8px rgba(0,0,0,0.3), 0 0 0 2px rgba(223, 255, 0,0.2);
+}
+
+@keyframes fadeIn { 
+  from { opacity: 0; transform: translateY(8px); } 
+  to { opacity: 1; transform: translateY(0); } 
+}
+.feed-comment { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* ── FEED DATE DIVIDER ── */
 .feed-date-divider {
@@ -2455,7 +2607,7 @@ option{
 .type-pill.advice.active { background: #60A5FA; color: black; border-color: #60A5FA; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2); }
 .type-pill.motivation.active { background: var(--accent-coral); color: white; border-color: var(--accent-coral); box-shadow: 0 4px 12px rgba(255, 112, 67, 0.2); }
 .type-pill.announcement.active { background: #C084FC; color: white; border-color: #C084FC; box-shadow: 0 4px 12px rgba(168, 85, 247, 0.2); }
-.type-pill.member_post.active { background: var(--accent-lime); color: black; border-color: var(--accent-lime); box-shadow: 0 4px 12px rgba(217, 255, 77, 0.2); }
+.type-pill.member_post.active { background: #DFFF00; color: black; border-color: #DFFF00; box-shadow: 0 4px 12px rgba(223, 255, 0, 0.2); }
 
 .create-post-compose { margin-bottom: 16px; }
 .create-post-textarea {
@@ -2496,15 +2648,15 @@ option{
   padding: 8px 12px; border-radius: 12px; transition: all 0.2s;
 }
 .upload-action-btn:hover { background: rgba(255,255,255,0.05); color: #fff; }
-.upload-action-btn svg { stroke: var(--accent-lime); }
+.upload-action-btn svg { stroke: #DFFF00; }
 
 .create-post-submit {
   display: flex; align-items: center; gap: 8px;
-  background: var(--accent-lime); color: #000; font-weight: 800; font-size: 0.95rem;
+  background: #DFFF00; color: #000; font-weight: 800; font-size: 0.95rem;
   padding: 10px 24px; border-radius: 24px; border: none; cursor: pointer;
   transition: all 0.3s;
 }
-.create-post-submit:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(217, 255, 77, 0.3); }
+.create-post-submit:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(223, 255, 0, 0.3); }
 .create-post-submit:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
 
 /* ── UNIVERSAL FEED CARDS ── */
@@ -2543,7 +2695,7 @@ option{
 .feed-type-badge.advice { background: rgba(59, 130, 246, 0.15); color: #60A5FA; border: 1px solid rgba(59,130,246,0.3); }
 .feed-type-badge.motivation { background: rgba(255, 112, 67, 0.15); color: var(--accent-coral); border: 1px solid rgba(255,112,67,0.3); }
 .feed-type-badge.announcement { background: rgba(168, 85, 247, 0.15); color: #C084FC; border: 1px solid rgba(168,85,247,0.3); }
-.feed-type-badge.member_post { background: rgba(217, 255, 77, 0.1); color: var(--accent-lime); border: 1px solid rgba(217,255,77,0.2); }
+.feed-type-badge.member_post { background: rgba(223, 255, 0, 0.1); color: #DFFF00; border: 1px solid rgba(223, 255, 0,0.2); }
 .feed-type-badge.log { background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid rgba(255,255,255,0.1); }
 
 .feed-post-actions { display: flex; gap: 4px; }
@@ -2565,13 +2717,13 @@ option{
   font-size: 0.8rem; font-weight: 700; padding: 4px 10px; border-radius: 8px;
   background: rgba(0,0,0,0.3); display: inline-flex; align-items: center;
 }
-.feed-log-pill.weight { color: var(--accent-lime); border: 1px solid rgba(217,255,77,0.1); }
+.feed-log-pill.weight { color: #DFFF00; border: 1px solid rgba(223, 255, 0,0.1); }
 .feed-log-pill.energy { color: var(--accent-coral); border: 1px solid rgba(255,112,67,0.1); }
 
 .feed-log-card { position: relative; }
 .feed-log-left-accent {
   position: absolute; left: 0; top: 24px; bottom: 24px; width: 4px;
-  background: var(--accent-lime); border-radius: 0 4px 4px 0; opacity: 0.5;
+  background: #DFFF00; border-radius: 0 4px 4px 0; opacity: 0.5;
 }
 
 /* ── FEED MEDIA GALLERIES ── */
@@ -2634,7 +2786,7 @@ button.feed-comment-count:hover {
   transition: border-color 0.3s, background 0.3s;
 }
 .feed-comment-input:focus-within {
-  border-color: rgba(217,255,77,0.3); background: rgba(255,255,255,0.06);
+  border-color: rgba(223, 255, 0,0.3); background: rgba(255,255,255,0.06);
 }
 .feed-comment-input textarea {
   flex-grow: 1; background: transparent; border: none; color: #fff;
@@ -2644,7 +2796,7 @@ button.feed-comment-count:hover {
 .feed-comment-input textarea::placeholder { color: var(--text-muted); }
 .feed-comment-input button {
   width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  background: var(--accent-lime); color: #000; border: none; cursor: pointer; transition: transform 0.2s, opacity 0.2s;
+  background: #DFFF00; color: #000; border: none; cursor: pointer; transition: transform 0.2s, opacity 0.2s;
 }
 .feed-comment-input button:not(:disabled):hover { transform: scale(1.05); }
 .feed-comment-input button:disabled { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); cursor: not-allowed; }

@@ -38,7 +38,6 @@ const totalLoss = computed(() => {
 })
 
 const stepLabels = ['Details', 'Timeline', 'Goals']
-const stepIcons = ['✨', '📅', '🎯']
 
 const nextStep = () => {
   if (step.value === 1 && (!name.value || !description.value)) {
@@ -92,594 +91,384 @@ const handleCreate = async () => {
 </script>
 
 <template>
-  <div class="create-group-page">
-    <!-- Ambient background orbs -->
-    <div class="ambient-bg">
-      <div class="orb orb-1"></div>
-      <div class="orb orb-2"></div>
-      <div class="orb orb-3"></div>
-    </div>
+  <div class="cg-page">
+    <div class="cg-container">
 
-    <div class="container">
-      <div class="create-wrapper">
-        <!-- Header -->
-        <div class="create-header animate-in">
-          <div class="header-badge">
-            <span class="badge-dot"></span>
-            New Challenge
-          </div>
-          <h1 class="page-title">
-            Launch Your
-            <span class="title-accent">Challenge</span>
-          </h1>
-          <p class="header-subtitle">Build a community and crush your fitness goals together.</p>
+      <!-- Header -->
+      <header class="cg-header animate-in">
+        <router-link to="/groups" class="cg-back">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </router-link>
+        <div>
+          <span class="cg-header-label">CREATE</span>
+          <h1 class="cg-header-title">NEW CHALLENGE</h1>
         </div>
+      </header>
 
-        <!-- Premium Stepper -->
-        <div class="stepper-container animate-in animate-in-delay-1">
-          <div class="stepper-track">
-            <div class="stepper-progress" :style="{ width: ((step - 1) / 2) * 100 + '%' }"></div>
-          </div>
-          <div class="stepper-nodes">
-            <div
-              v-for="(label, idx) in stepLabels"
-              :key="idx"
-              class="stepper-node"
-              :class="{
-                completed: step > idx + 1,
-                active: step === idx + 1,
-                upcoming: step < idx + 1
-              }"
-            >
-              <div class="node-circle">
-                <svg v-if="step > idx + 1" class="check-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-                <span v-else class="node-emoji">{{ stepIcons[idx] }}</span>
-              </div>
-              <span class="node-label">{{ label }}</span>
+      <!-- Stepper -->
+      <div class="cg-stepper animate-in" style="animation-delay: 0.08s">
+        <div class="cg-stepper-track">
+          <div class="cg-stepper-fill" :style="{ width: ((step - 1) / 2) * 100 + '%' }"></div>
+        </div>
+        <div class="cg-stepper-nodes">
+          <div
+            v-for="(label, idx) in stepLabels"
+            :key="idx"
+            class="cg-node"
+            :class="{ completed: step > idx + 1, active: step === idx + 1 }"
+          >
+            <div class="cg-node-dot">
+              <svg v-if="step > idx + 1" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <span v-else class="cg-node-num">{{ idx + 1 }}</span>
             </div>
+            <span class="cg-node-label">{{ label }}</span>
           </div>
         </div>
-
-        <!-- Error -->
-        <Transition name="shake">
-          <div v-if="error" class="error-banner">
-            <div class="error-icon">!</div>
-            <span>{{ error }}</span>
-          </div>
-        </Transition>
-
-        <!-- Step Cards -->
-        <Transition name="slide-fade" mode="out-in">
-          <!-- Step 1: Group Info -->
-          <div v-if="step === 1 && !transitioning" key="step1" class="step-card">
-            <div class="card-glow card-glow-lime"></div>
-            <div class="card-inner">
-              <div class="card-top">
-                
-                <div class="card-title-area">
-                  <h2>Challenge Identity</h2>
-                  <p>Give your challenge a name that inspires commitment.</p>
-                </div>
-              </div>
-
-              <div class="form-stack">
-                <div class="input-group">
-                  <label>
-                    <span class="label-icon">💬</span>
-                    Challenge Name
-                  </label>
-                  <input
-                    v-model="name"
-                    class="premium-input"
-                    placeholder="e.g., 90 Day Engine"
-                  />
-                </div>
-
-                <div class="input-group">
-                  <label>
-                    <span class="label-icon">📝</span>
-                    The Vision
-                  </label>
-                  <textarea
-                    v-model="description"
-                    class="premium-input premium-textarea"
-                    rows="4"
-                    placeholder="What are the rules and objectives?"
-                  ></textarea>
-                </div>
-              </div>
-
-              <button class="cta-btn cta-primary" @click="nextStep">
-                <span>Continue</span>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="5" y1="12" x2="19" y2="12"></line>
-                  <polyline points="12 5 19 12 12 19"></polyline>
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <!-- Step 2: Timeline -->
-          <div v-else-if="step === 2 && !transitioning" key="step2" class="step-card">
-            <div class="card-glow card-glow-purple"></div>
-            <div class="card-inner">
-              <div class="card-top">
-                <div class="card-icon-wrap purple">
-                  <span class="card-icon">📅</span>
-                </div>
-                <div class="card-title-area">
-                  <h2>Set the Timeline</h2>
-                  <p>Define when the challenge starts and when victory is won.</p>
-                </div>
-              </div>
-
-              <div class="form-stack">
-                <div class="dates-grid">
-                  <div class="input-group">
-                    <label>
-                      <span class="label-icon">🚀</span>
-                      Start Date
-                    </label>
-                    <input v-model="startDate" type="date" class="premium-input" />
-                  </div>
-                  <div class="input-group">
-                    <label>
-                      <span class="label-icon">🏁</span>
-                      End Date
-                    </label>
-                    <input v-model="endDate" type="date" class="premium-input" />
-                  </div>
-                </div>
-
-                <Transition name="expand">
-                  <div v-if="totalWeeks > 0" class="stats-ribbon">
-                    <div class="stat-chip">
-                      <span class="stat-value purple-text">{{ totalWeeks }}</span>
-                      <span class="stat-label">Weeks</span>
-                    </div>
-                    <div class="stat-divider"></div>
-                    <div class="stat-chip">
-                      <span class="stat-value lime-text">{{ totalDays }}</span>
-                      <span class="stat-label">Days</span>
-                    </div>
-                  </div>
-                </Transition>
-              </div>
-
-              <div class="btn-row">
-                <button class="cta-btn cta-ghost" @click="prevStep">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="19" y1="12" x2="5" y2="12"></line>
-                    <polyline points="12 19 5 12 12 5"></polyline>
-                  </svg>
-                  <span>Back</span>
-                </button>
-                <button class="cta-btn cta-primary" @click="nextStep">
-                  <span>Continue</span>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                    <polyline points="12 5 19 12 12 19"></polyline>
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Step 3: Goals -->
-          <div v-else-if="step === 3 && !transitioning" key="step3" class="step-card">
-            <div class="card-glow card-glow-coral"></div>
-            <div class="card-inner">
-              <div class="card-top">
-                <div class="card-icon-wrap coral">
-                  <span class="card-icon">🎯</span>
-                </div>
-                <div class="card-title-area">
-                  <h2>Personal Target</h2>
-                  <p>Define your starting point. Only you and the coach see this.</p>
-                </div>
-              </div>
-
-              <div class="form-stack">
-                <div class="dates-grid">
-                  <div class="input-group">
-                    <label>
-                      <span class="label-icon">⚖️</span>
-                      Current Weight (lbs)
-                    </label>
-                    <input v-model="startWeight" type="number" step="0.1" class="premium-input" placeholder="0.0" />
-                  </div>
-                  <div class="input-group">
-                    <label>
-                      <span class="label-icon">🏆</span>
-                      Goal Weight (lbs)
-                    </label>
-                    <input v-model="goalWeight" type="number" step="0.1" class="premium-input" placeholder="0.0" />
-                  </div>
-                </div>
-
-                <Transition name="expand">
-                  <div v-if="weeklyLoss > 0" class="goal-breakdown">
-                    <div class="goal-card-row">
-                      <div class="goal-metric">
-                        <div class="metric-ring lime-ring">
-                          <span class="metric-value">{{ weeklyLoss }}</span>
-                        </div>
-                        <span class="metric-label">lbs/week</span>
-                      </div>
-                      <div class="goal-metric">
-                        <div class="metric-ring coral-ring">
-                          <span class="metric-value">{{ totalLoss }}</span>
-                        </div>
-                        <span class="metric-label">total loss</span>
-                      </div>
-                    </div>
-                  </div>
-                </Transition>
-              </div>
-
-              <div class="btn-row">
-                <button class="cta-btn cta-ghost" @click="prevStep">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="19" y1="12" x2="5" y2="12"></line>
-                    <polyline points="12 19 5 12 12 5"></polyline>
-                  </svg>
-                  <span>Back</span>
-                </button>
-                <button class="cta-btn cta-launch" @click="handleCreate">
-                  <span>Launch Challenge</span>
-                  <span class="launch-emoji">🚀</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </Transition>
-
       </div>
+
+      <!-- Error -->
+      <Transition name="cg-shake">
+        <div v-if="error" class="cg-error">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <span>{{ error }}</span>
+        </div>
+      </Transition>
+
+      <!-- Steps -->
+      <Transition name="cg-slide" mode="out-in">
+
+        <!-- Step 1 -->
+        <div v-if="step === 1 && !transitioning" key="s1" class="cg-card animate-in" style="animation-delay: 0.12s">
+          <div class="cg-card-header">
+            <h2 class="cg-card-title">CHALLENGE IDENTITY</h2>
+            <p class="cg-card-desc">Give your challenge a name that inspires commitment.</p>
+          </div>
+
+          <div class="cg-fields">
+            <div class="cg-field">
+              <label>CHALLENGE NAME</label>
+              <input v-model="name" class="cg-input" placeholder="e.g., 90 Day Engine" />
+            </div>
+            <div class="cg-field">
+              <label>THE VISION</label>
+              <textarea v-model="description" class="cg-input cg-textarea" rows="4" placeholder="What are the rules and objectives?"></textarea>
+            </div>
+          </div>
+
+          <button class="cg-btn-primary" @click="nextStep">
+            <span>CONTINUE</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </button>
+        </div>
+
+        <!-- Step 2 -->
+        <div v-else-if="step === 2 && !transitioning" key="s2" class="cg-card animate-in">
+          <div class="cg-card-header">
+            <h2 class="cg-card-title">SET THE TIMELINE</h2>
+            <p class="cg-card-desc">Define when the challenge starts and when victory is won.</p>
+          </div>
+
+          <div class="cg-fields">
+            <div class="cg-dates-row">
+              <div class="cg-field">
+                <label>START DATE</label>
+                <input v-model="startDate" type="date" class="cg-input" />
+              </div>
+              <div class="cg-field">
+                <label>END DATE</label>
+                <input v-model="endDate" type="date" class="cg-input" />
+              </div>
+            </div>
+
+            <Transition name="cg-expand">
+              <div v-if="totalWeeks > 0" class="cg-stats-row">
+                <div class="cg-stat-box">
+                  <span class="cg-stat-val cg-val-lime">{{ totalWeeks }}</span>
+                  <span class="cg-stat-lbl">WEEKS</span>
+                </div>
+                <div class="cg-stat-divider"></div>
+                <div class="cg-stat-box">
+                  <span class="cg-stat-val">{{ totalDays }}</span>
+                  <span class="cg-stat-lbl">DAYS</span>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+          <div class="cg-btn-row">
+            <button class="cg-btn-ghost" @click="prevStep">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+              BACK
+            </button>
+            <button class="cg-btn-primary" @click="nextStep">
+              <span>CONTINUE</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div v-else-if="step === 3 && !transitioning" key="s3" class="cg-card animate-in">
+          <div class="cg-card-header">
+            <h2 class="cg-card-title">PERSONAL TARGET</h2>
+            <p class="cg-card-desc">Define your starting point. Only you and the coach see this.</p>
+          </div>
+
+          <div class="cg-fields">
+            <div class="cg-dates-row">
+              <div class="cg-field">
+                <label>CURRENT WEIGHT (LBS)</label>
+                <input v-model="startWeight" type="number" step="0.1" class="cg-input" placeholder="0.0" />
+              </div>
+              <div class="cg-field">
+                <label>GOAL WEIGHT (LBS)</label>
+                <input v-model="goalWeight" type="number" step="0.1" class="cg-input" placeholder="0.0" />
+              </div>
+            </div>
+
+            <Transition name="cg-expand">
+              <div v-if="weeklyLoss > 0" class="cg-goal-summary">
+                <div class="cg-goal-item">
+                  <span class="cg-goal-val cg-val-lime">{{ weeklyLoss }}</span>
+                  <span class="cg-goal-lbl">LBS / WEEK</span>
+                </div>
+                <div class="cg-stat-divider"></div>
+                <div class="cg-goal-item">
+                  <span class="cg-goal-val cg-val-coral">{{ totalLoss }}</span>
+                  <span class="cg-goal-lbl">TOTAL LOSS</span>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+          <div class="cg-btn-row">
+            <button class="cg-btn-ghost" @click="prevStep">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+              BACK
+            </button>
+            <button class="cg-btn-launch" @click="handleCreate">
+              LAUNCH CHALLENGE
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </button>
+          </div>
+        </div>
+
+      </Transition>
     </div>
   </div>
 </template>
 
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
 /* ── Page ── */
-.create-group-page {
+.cg-page {
+  background: #0e0e0e;
   min-height: 100vh;
+  padding-top: max(24px, calc(12px + env(safe-area-inset-top)));
+  padding-bottom: max(120px, calc(100px + env(safe-area-inset-bottom)));
   position: relative;
-  overflow: hidden;
-  padding-bottom: calc(120px + env(safe-area-inset-bottom));
+  overflow-x: hidden;
 }
 
-/* ── Ambient Background ── */
-.ambient-bg {
+.cg-page::before {
+  content: '';
   position: fixed;
-  inset: 0;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background:
+    radial-gradient(ellipse at 15% 5%, rgba(223, 255, 0, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 95%, rgba(179, 153, 255, 0.03) 0%, transparent 50%);
   pointer-events: none;
   z-index: 0;
 }
 
-.orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(120px);
-  opacity: 0.35;
-  animation: orbFloat 16s ease-in-out infinite;
-}
-
-.orb-1 {
-  width: 500px;
-  height: 500px;
-  background: var(--accent-lime);
-  top: -10%;
-  right: -10%;
-  animation-delay: 0s;
-}
-
-.orb-2 {
-  width: 400px;
-  height: 400px;
-  background: var(--accent-purple);
-  bottom: 10%;
-  left: -8%;
-  animation-delay: -5s;
-}
-
-.orb-3 {
-  width: 300px;
-  height: 300px;
-  background: var(--accent-coral);
-  top: 60%;
-  right: 20%;
-  animation-delay: -10s;
-}
-
-@keyframes orbFloat {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(30px, -40px) scale(1.1); }
-  66% { transform: translate(-20px, 20px) scale(0.95); }
-}
-
-/* ── Wrapper ── */
-.create-wrapper {
-  max-width: 600px;
+.cg-container {
+  max-width: 560px;
   margin: 0 auto;
-  padding-top: max(48px, calc(16px + env(safe-area-inset-top)));
+  padding: 0 20px;
   position: relative;
   z-index: 1;
 }
 
 /* ── Header ── */
-.create-header {
-  text-align: center;
-  margin-bottom: 48px;
+.cg-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 32px;
+  padding: 8px 0;
 }
 
-.header-badge {
-  display: inline-flex;
+.cg-back {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 16px;
-  border-radius: var(--radius-full);
-  background: rgba(217, 255, 77, 0.08);
-  border: 1px solid rgba(217, 255, 77, 0.2);
-  color: var(--accent-lime);
-  font-size: 0.8rem;
+  justify-content: center;
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: #adaaaa;
+  text-decoration: none;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.cg-back:active { transform: scale(0.92); }
+
+.cg-header-label {
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
-  font-family: var(--font-heading);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 20px;
+  font-size: 0.68rem;
+  letter-spacing: 0.2em;
+  color: #DFFF00;
+  display: block;
+  margin-bottom: 4px;
 }
 
-.badge-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent-lime);
-  animation: pulse-dot 2s ease-in-out infinite;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.7); }
-}
-
-.page-title {
-  font-size: 3rem;
-  font-weight: 900;
+.cg-header-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 2.2rem;
+  line-height: 1;
   letter-spacing: -0.04em;
-  line-height: 1.1;
-  margin-bottom: 12px;
-}
-
-.title-accent {
-  background: linear-gradient(135deg, var(--accent-lime), var(--accent-purple));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.header-subtitle {
-  color: var(--text-secondary);
-  font-size: 1.1rem;
-  max-width: 380px;
-  margin: 0 auto;
+  color: #ffffff;
+  text-transform: uppercase;
+  font-style: italic;
 }
 
 /* ── Stepper ── */
-.stepper-container {
-  margin-bottom: 40px;
-  padding: 0 20px;
+.cg-stepper {
+  position: relative;
+  margin-bottom: 28px;
+  padding: 0 8px;
 }
 
-.stepper-track {
+.cg-stepper-track {
   position: absolute;
-  left: 20px;
-  right: 20px;
-  top: 24px;
+  left: 32px; right: 32px;
+  top: 16px;
   height: 3px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255,255,255,0.05);
   border-radius: 4px;
   z-index: 0;
 }
 
-.stepper-progress {
+.cg-stepper-fill {
   height: 100%;
   border-radius: 4px;
-  background: var(--gradient-lime);
+  background: #DFFF00;
   transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 12px var(--accent-lime-glow);
 }
 
-.stepper-nodes {
+.cg-stepper-nodes {
   display: flex;
   justify-content: space-between;
   position: relative;
   z-index: 1;
 }
 
-.stepper-node {
+.cg-node {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.node-circle {
-  width: 48px;
-  height: 48px;
-  border-radius: 16px;
+.cg-node-dot {
+  width: 34px; height: 34px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-}
-
-.stepper-node.upcoming .node-circle {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1.5px solid rgba(255, 255, 255, 0.08);
-}
-
-.stepper-node.active .node-circle {
-  background: rgba(255, 255, 255, 0.1);
-  border: 2px solid var(--accent-lime);
-  box-shadow: 0 0 24px var(--accent-lime-glow), inset 0 0 12px rgba(217, 255, 77, 0.08);
-  transform: scale(1.1);
-}
-
-.stepper-node.completed .node-circle {
-  background: var(--accent-lime-dim);
-  border: 2px solid var(--accent-lime);
-  color: var(--accent-lime);
-}
-
-.check-svg {
-  width: 20px;
-  height: 20px;
-}
-
-.node-label {
-  font-size: 0.72rem;
+  background: #1a1919;
+  border: 2px solid rgba(255,255,255,0.08);
+  color: #777575;
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
+  font-size: 0.75rem;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cg-node.active .cg-node-dot {
+  border-color: #DFFF00;
+  color: #DFFF00;
+  box-shadow: 0 0 16px rgba(223, 255, 0, 0.2);
+  background: rgba(223, 255, 0, 0.06);
+}
+
+.cg-node.completed .cg-node-dot {
+  background: rgba(223, 255, 0, 0.1);
+  border-color: #DFFF00;
+  color: #DFFF00;
+}
+
+.cg-node-label {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+  color: #52525b;
   transition: color 0.3s;
 }
 
-.stepper-node.active .node-label {
-  color: var(--accent-lime);
-}
+.cg-node.active .cg-node-label { color: #DFFF00; }
+.cg-node.completed .cg-node-label { color: #adaaaa; }
 
-.stepper-node.completed .node-label {
-  color: var(--text-secondary);
-}
-
-/* ── Step Card ── */
-.step-card {
-  position: relative;
-  border-radius: var(--radius-card);
-  overflow: hidden;
-}
-
-.card-glow {
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius-card);
-  opacity: 0.5;
-  z-index: 0;
-  transition: opacity 0.5s;
-}
-
-.card-glow-lime {
-  box-shadow: inset 0 1px 0 rgba(217, 255, 77, 0.15), 0 0 80px -20px rgba(217, 255, 77, 0.12);
-}
-
-.card-glow-purple {
-  box-shadow: inset 0 1px 0 rgba(179, 153, 255, 0.15), 0 0 80px -20px rgba(179, 153, 255, 0.12);
-}
-
-.card-glow-coral {
-  box-shadow: inset 0 1px 0 rgba(255, 112, 67, 0.15), 0 0 80px -20px rgba(255, 112, 67, 0.12);
-}
-
-.card-inner {
-  position: relative;
-  z-index: 1;
-  background: rgba(16, 16, 18, 0.75);
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: var(--radius-card);
-  padding: 48px;
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-}
-
-.card-top {
-  display: flex;
-  align-items: flex-start;
-  gap: 20px;
-}
-
-.card-icon-wrap {
-  width: 56px;
-  height: 56px;
-  min-width: 56px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(217, 255, 77, 0.12), rgba(217, 255, 77, 0.04));
-  border: 1px solid rgba(217, 255, 77, 0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-}
-
-.card-icon-wrap.purple {
-  background: linear-gradient(135deg, rgba(179, 153, 255, 0.12), rgba(179, 153, 255, 0.04));
-  border-color: rgba(179, 153, 255, 0.15);
-}
-
-.card-icon-wrap.coral {
-  background: linear-gradient(135deg, rgba(255, 112, 67, 0.12), rgba(255, 112, 67, 0.04));
-  border-color: rgba(255, 112, 67, 0.15);
-}
-
-.card-title-area h2 {
-  font-size: 1.6rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  margin-bottom: 4px;
-}
-
-.card-title-area p {
-  color: var(--text-secondary);
-  font-size: 0.95rem;
-  line-height: 1.5;
-}
-
-/* ── Forms ── */
-.form-stack {
+/* ── Card ── */
+.cg-card {
+  background: #1a1919;
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 20px;
+  padding: 28px;
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
+.cg-card-header { display: flex; flex-direction: column; gap: 6px; }
 
-.input-group label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.82rem;
+.cg-card-title {
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
-  color: var(--text-secondary);
+  font-size: 1.2rem;
+  letter-spacing: -0.01em;
+  color: #ffffff;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-family: var(--font-heading);
+  font-style: italic;
 }
 
-.label-icon {
-  font-size: 0.9rem;
+.cg-card-desc {
+  font-size: 0.82rem;
+  color: #777575;
+  line-height: 1.5;
 }
 
-.premium-input {
-  padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1.5px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-family: var(--font-body);
-  font-size: 1rem;
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+/* ── Fields ── */
+.cg-fields { display: flex; flex-direction: column; gap: 20px; }
+
+.cg-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+.cg-field label {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600;
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  color: #adaaaa;
+  text-transform: uppercase;
+}
+
+.cg-input {
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  color: #fff;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.95rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   outline: none;
   width: 100%;
   box-sizing: border-box;
@@ -687,365 +476,216 @@ const handleCreate = async () => {
   appearance: none;
 }
 
-.premium-input:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.04);
+.cg-input:hover { border-color: rgba(255,255,255,0.12); }
+
+.cg-input:focus {
+  border-color: #DFFF00;
+  background: rgba(255,255,255,0.05);
+  box-shadow: 0 0 0 3px rgba(223, 255, 0, 0.08);
 }
 
-.premium-input:focus {
-  border-color: var(--accent-lime);
-  background: rgba(255, 255, 255, 0.05);
-  box-shadow: 0 0 0 4px var(--accent-lime-dim), 0 0 20px rgba(217, 255, 77, 0.08);
-}
+.cg-input::placeholder { color: #52525b; }
 
-.premium-input::placeholder {
-  color: var(--text-muted);
-}
+.cg-textarea { resize: vertical; min-height: 100px; line-height: 1.6; }
 
-.premium-textarea {
-  resize: vertical;
-  min-height: 100px;
-  line-height: 1.6;
-}
-
-.dates-grid {
+.cg-dates-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  gap: 14px;
 }
 
-/* ── Stats Ribbon ── */
-.stats-ribbon {
+/* ── Stats Row ── */
+.cg-stats-row {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 32px;
-  padding: 24px;
-  background: linear-gradient(135deg, rgba(179, 153, 255, 0.06), rgba(217, 255, 77, 0.06));
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 20px;
+  gap: 28px;
+  padding: 20px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 14px;
 }
 
-.stat-chip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
+.cg-stat-box { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 
-.stat-value {
-  font-size: 2.25rem;
-  font-weight: 900;
-  font-family: var(--font-heading);
+.cg-stat-val {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
   line-height: 1;
 }
 
-.stat-label {
-  font-size: 0.7rem;
+.cg-val-lime { color: #DFFF00; }
+.cg-val-coral { color: #ff7043; }
+
+.cg-stat-lbl {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.6rem;
   font-weight: 700;
-  color: var(--text-muted);
+  color: #777575;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
-.stat-divider {
+.cg-stat-divider {
   width: 1px;
-  height: 40px;
-  background: rgba(255, 255, 255, 0.08);
+  height: 36px;
+  background: rgba(255,255,255,0.08);
 }
 
-.lime-text { color: var(--accent-lime); }
-.purple-text { color: var(--accent-purple); }
-
-/* ── Goal Breakdown ── */
-.goal-breakdown {
-  padding: 28px;
-  background: linear-gradient(135deg, rgba(217, 255, 77, 0.05), rgba(255, 112, 67, 0.05));
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 22px;
-}
-
-.goal-card-row {
-  display: flex;
-  justify-content: space-around;
-  gap: 24px;
-}
-
-.goal-metric {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.metric-ring {
-  width: 88px;
-  height: 88px;
-  border-radius: 50%;
+/* ── Goal Summary ── */
+.cg-goal-summary {
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
+  gap: 28px;
+  padding: 24px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 14px;
 }
 
-.lime-ring {
-  background: radial-gradient(circle, rgba(217, 255, 77, 0.1), transparent 70%);
-  border: 2px solid rgba(217, 255, 77, 0.25);
-  box-shadow: 0 0 30px rgba(217, 255, 77, 0.1);
-}
+.cg-goal-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 
-.coral-ring {
-  background: radial-gradient(circle, rgba(255, 112, 67, 0.1), transparent 70%);
-  border: 2px solid rgba(255, 112, 67, 0.25);
-  box-shadow: 0 0 30px rgba(255, 112, 67, 0.1);
-}
-
-.metric-value {
-  font-size: 1.5rem;
-  font-weight: 900;
-  font-family: var(--font-heading);
-}
-
-.lime-ring .metric-value { color: var(--accent-lime); }
-.coral-ring .metric-value { color: var(--accent-coral); }
-
-.metric-label {
-  font-size: 0.72rem;
+.cg-goal-val {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.8rem;
   font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+.cg-goal-lbl {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: #777575;
+  letter-spacing: 0.12em;
 }
 
 /* ── Buttons ── */
-.btn-row {
+.cg-btn-row {
   display: flex;
-  gap: 12px;
-  justify-content: space-between;
+  gap: 10px;
 }
 
-.cta-btn {
+.cg-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  padding: 14px 24px;
+  background: #DFFF00;
+  color: #0e0e0e;
+  border: none;
+  border-radius: 12px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: all 0.25s;
+  box-shadow: 0 4px 20px rgba(223, 255, 0, 0.2);
+}
+
+.cg-btn-primary:active { transform: scale(0.96); }
+
+.cg-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 20px;
+  background: transparent;
+  color: #777575;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.25s;
+}
+
+.cg-btn-ghost:active { transform: scale(0.96); }
+
+.cg-btn-launch {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
+  flex: 1;
   padding: 15px 28px;
+  background: #DFFF00;
+  color: #0e0e0e;
   border: none;
-  border-radius: var(--radius-md);
-  font-family: var(--font-heading);
+  border-radius: 12px;
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
   cursor: pointer;
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-  letter-spacing: 0.01em;
+  transition: all 0.25s;
+  box-shadow: 0 6px 28px rgba(223, 255, 0, 0.25);
 }
 
-.cta-primary {
-  background: var(--gradient-lime);
-  color: #080808;
-  box-shadow: 0 4px 24px var(--accent-lime-glow);
-  flex: 1;
-}
+.cg-btn-launch:active { transform: scale(0.96); }
 
-.cta-primary:hover {
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 8px 40px var(--accent-lime-glow);
-}
-
-.cta-primary:active {
-  transform: translateY(0) scale(0.98);
-}
-
-.cta-ghost {
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-secondary);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(10px);
-}
-
-.cta-ghost:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
-  border-color: rgba(255, 255, 255, 0.15);
-  transform: translateY(-1px);
-}
-
-.cta-launch {
-  background: linear-gradient(135deg, var(--accent-lime), #a8cf2b, var(--accent-lime));
-  background-size: 200% 200%;
-  color: #080808;
-  flex: 1;
-  font-size: 1rem;
-  padding: 16px 32px;
-  box-shadow: 0 4px 24px var(--accent-lime-glow);
-  animation: shimmerGradient 3s ease-in-out infinite;
-}
-
-.cta-launch:hover {
-  transform: translateY(-3px) scale(1.03);
-  box-shadow: 0 12px 48px var(--accent-lime-glow);
-}
-
-.cta-launch:active {
-  transform: translateY(0) scale(0.98);
-}
-
-.launch-emoji {
-  font-size: 1.2rem;
-  display: inline-block;
-  animation: rocketBounce 2s ease-in-out infinite;
-}
-
-@keyframes rocketBounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
-}
-
-@keyframes shimmerGradient {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
-/* ── Error Banner ── */
-.error-banner {
+/* ── Error ── */
+.cg-error {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 20px;
+  gap: 10px;
+  padding: 12px 16px;
   background: rgba(255, 112, 67, 0.06);
-  border: 1px solid rgba(255, 112, 67, 0.2);
-  border-radius: 16px;
-  color: var(--accent-coral);
+  border: 1px solid rgba(255, 112, 67, 0.15);
+  border-radius: 12px;
+  color: #ff7043;
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 600;
-  font-size: 0.9rem;
-  margin-bottom: 16px;
-}
-
-.error-icon {
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
-  border-radius: 8px;
-  background: var(--accent-coral);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 900;
-  font-size: 0.75rem;
+  font-size: 0.82rem;
+  margin-bottom: 8px;
 }
 
 /* ── Transitions ── */
-.slide-fade-enter-active {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
+.cg-slide-enter-active { transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+.cg-slide-leave-active { transition: all 0.2s ease; }
+.cg-slide-enter-from { opacity: 0; transform: translateY(20px); }
+.cg-slide-leave-to { opacity: 0; transform: translateY(-12px); }
 
-.slide-fade-leave-active {
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
+.cg-expand-enter-active, .cg-expand-leave-active { transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+.cg-expand-enter-from, .cg-expand-leave-to { opacity: 0; transform: translateY(8px); }
 
-.slide-fade-enter-from {
-  opacity: 0;
-  transform: translateY(24px) scale(0.97);
-}
-
-.slide-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-16px) scale(0.97);
-}
-
-.expand-enter-active,
-.expand-leave-active {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.expand-enter-from,
-.expand-leave-to {
-  opacity: 0;
-  transform: translateY(10px);
-}
-
-.shake-enter-active {
-  animation: shakeIn 0.5s ease;
-}
-
-@keyframes shakeIn {
-  0% { transform: translateX(-10px); opacity: 0; }
-  25% { transform: translateX(8px); }
-  50% { transform: translateX(-5px); }
-  75% { transform: translateX(3px); }
+.cg-shake-enter-active { animation: cgShake 0.45s ease; }
+@keyframes cgShake {
+  0% { transform: translateX(-8px); opacity: 0; }
+  25% { transform: translateX(6px); }
+  50% { transform: translateX(-4px); }
+  75% { transform: translateX(2px); }
   100% { transform: translateX(0); opacity: 1; }
 }
 
-/* ── Responsive ── */
-@media (max-width: 640px) {
-  .create-wrapper {
-    padding-top: 24px;
-  }
-
-  .page-title {
-    font-size: 2.25rem;
-  }
-
-  .card-inner {
-    padding: 32px 24px;
-    width: 100%;
-    box-sizing: border-box;
-  }
-
-  .card-top {
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .dates-grid {
-    grid-template-columns: 1fr;
-    width: 100%;
-    box-sizing: border-box;
-  }
-  
-  .premium-input {
-    padding: 14px 16px;
-    font-size: 0.95rem;
-  }
-
-  .node-circle {
-    width: 40px;
-    height: 40px;
-    border-radius: 13px;
-    font-size: 1rem;
-  }
-
-  .stepper-track {
-    top: 20px;
-  }
-
-  .goal-card-row {
-    flex-direction: row;
-    gap: 16px;
-  }
-
-  .metric-ring {
-    width: 72px;
-    height: 72px;
-  }
-
-  .orb-1 { width: 300px; height: 300px; }
-  .orb-2 { width: 250px; height: 250px; }
-  .orb-3 { width: 200px; height: 200px; }
+/* ── Animations ── */
+.animate-in { animation: cg-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes cg-fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-/* Date input styling for dark theme */
+/* ── Date input ── */
 input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(1);
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: pointer;
 }
+input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 0.7; }
 
-input[type="date"]::-webkit-calendar-picker-indicator:hover {
-  opacity: 0.8;
+/* ── Responsive ── */
+@media (max-width: 480px) {
+  .cg-header-title { font-size: 1.8rem; }
+  .cg-card { padding: 22px 18px; }
+  .cg-dates-row { grid-template-columns: 1fr; }
 }
 </style>

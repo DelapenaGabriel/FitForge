@@ -12,31 +12,17 @@ const notifs = useNotificationStore()
 const showPushBanner = ref(false)
 const pushBannerDismissed = ref(false)
 
-const isStandalone = window.matchMedia('(display-mode: standalone)').matches
-  || window.navigator.standalone === true
-
 const dailyQuote = computed(() => {
-  // Use days since epoch to change the quote once per day
   const dayIndex = Math.floor(Date.now() / (1000 * 60 * 60 * 24))
   return quotes[dayIndex % quotes.length]
 })
 
-const activeFilter = ref('all')
-
-const filteredGroups = computed(() => {
-  const now = new Date()
-  if (activeFilter.value === 'in-progress') {
-    return groups.groups.filter(g => new Date(g.endDate) >= now)
-  }
-  if (activeFilter.value === 'completed') {
-    return groups.groups.filter(g => new Date(g.endDate) < now)
-  }
-  return groups.groups
-})
-
-onMounted(() => {
-  groups.fetchGroups()
-  // Show push notification banner if permission not yet decided
+onMounted(async () => {
+  await Promise.all([
+    groups.fetchGroups(),
+    groups.fetchDashboardStats()
+  ])
+  
   if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
     setTimeout(() => {
       showPushBanner.value = true
@@ -61,12 +47,16 @@ const greeting = computed(() => {
   return 'Good Evening'
 })
 
-const averageProgress = computed(() => {
-  const activeGroups = groups.groups.filter(g => new Date(g.endDate) >= new Date())
-  if (activeGroups.length === 0) return 0
-  const total = activeGroups.reduce((sum, g) => sum + (g.myProgress || 0), 0)
-  return Math.max(0, Math.min(100, Math.round(total / activeGroups.length)))
-})
+const getInitials = (name) => {
+  if (!name) return '??'
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return ''
+  const d = new Date(dateString)
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
 
 const getWeeksRemaining = (endDate) => {
   const now = new Date()
@@ -74,646 +64,428 @@ const getWeeksRemaining = (endDate) => {
   const days = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)))
   return Math.ceil(days / 7)
 }
-
-const getInitials = (name) => {
-  if (!name) return '??'
-  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-}
 </script>
 
 <template>
-  <div class="page dashboard-page">
-    <div class="container pb-32">
+  <div class="athl-page">
+    <div class="athl-container">
+
       <!-- Push Notification Banner -->
-      <transition name="banner-slide">
-        <div v-if="showPushBanner && !pushBannerDismissed" class="push-banner animate-in">
-          <div class="push-banner-content">
-            <div class="push-banner-icon">🔔</div>
-            <div class="push-banner-text">
-              <strong>Stay in the loop!</strong>
-              <span>Enable push notifications so you never miss a group update.</span>
+      <transition name="athl-banner-slide">
+        <div v-if="showPushBanner && !pushBannerDismissed" class="athl-push-banner">
+          <div class="athl-push-banner-glow"></div>
+          <div class="athl-push-content">
+            <div class="athl-push-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C10.9 2 10 2.9 10 4C10 4.07 10.003 4.14 10.01 4.21C7.41 5.09 5.5 7.57 5.5 10.5V16L4 17.5V18.5H20V17.5L18.5 16V10.5C18.5 7.57 16.59 5.09 13.99 4.21C13.997 4.14 14 4.07 14 4C14 2.9 13.1 2 12 2ZM12 22C13.1 22 14 21.1 14 20H10C10 21.1 10.9 22 12 22Z" fill="currentColor"/>
+              </svg>
+            </div>
+            <div class="athl-push-text">
+              <span class="athl-push-title">STAY IN THE LOOP</span>
+              <span class="athl-push-desc">Enable push notifications to never miss an update.</span>
             </div>
           </div>
-          <div class="push-banner-actions">
-            <button class="push-banner-enable" @click="handleEnablePush">Enable</button>
-            <button class="push-banner-dismiss" @click="dismissPushBanner">Not now</button>
+          <div class="athl-push-actions">
+            <button class="athl-push-enable" @click="handleEnablePush">ENABLE</button>
+            <button class="athl-push-dismiss" @click="dismissPushBanner">NOT NOW</button>
           </div>
         </div>
       </transition>
-      <!-- Top header with Profile style from inspo -->
-      <header class="dashboard-header animate-in">
-        <div class="user-profile-header">
-          <div class="avatar-container">
-            <div class="avatar avatar-lg" :class="{ 'avatar-placeholder': !auth.user?.avatarUrl }">
-              <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="Avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />
-              <template v-else>{{ getInitials(auth.user?.displayName) }}</template>
-            </div>
-            <div class="status-indicator"></div>
+
+      <!-- Hero Header -->
+      <header class="athl-hero animate-in">
+        <div class="athl-hero-top">
+          <div class="athl-hero-info">
+            <span class="athl-hero-label">{{ greeting }}</span>
+            <h1 class="athl-hero-name">
+              {{ auth.user?.displayName?.split(' ')[0]?.toUpperCase() || 'ATHLETE' }}
+            </h1>
           </div>
-          <div class="user-info">
-            <span class="greeting-text">HI {{ auth.user?.displayName?.split(' ')[0].toUpperCase() }}</span>
-            <span class="user-rank">
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" class="bolt-icon"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-              Fitness Enthusiast
-            </span>
+          <div class="athl-hero-avatar">
+            <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="Avatar" />
+            <span v-else class="athl-avatar-initials">{{ getInitials(auth.user?.displayName) }}</span>
+            <div class="athl-avatar-status"></div>
           </div>
         </div>
       </header>
 
-      <!-- Featured Plan style from inspo -->
-      <section class="featured-section animate-in animate-in-delay-1">
-        <div class="featured-card flex justify-between items-center px-8 py-8 md:px-10">
-          
-          <!-- LEFT SIDE: Info + Motivation -->
-          <div class="featured-content flex flex-col gap-8 w-full">
-            <div class="flex justify-between items-start">
-              <div>
-                <span class="featured-label">Daily Motivation</span>
-                <h2 class="featured-title">Keep Forging Ahead</h2>
-                <div class="featured-stats">
-                  <span class="stat-item">Active</span>
-                  <span class="divider">•</span>
-                  <span class="stat-item">{{ groups.groups.length }} Groups</span>
-                </div>
-              </div>
-            </div>
-            
-            <!-- Motivational Quote -->
-            <!-- Motivational Quote -->
-            <div class="relative py-2 mt-10 w-full max-w-3xl">
-              
-              <div class="relative z-10 flex flex-col pt-3 gap-4">
-                <p class="text-2xl md:text-3xl lg:text-[2rem] font-serif italic text-black/90 tracking-tight leading-snug">
-                  " {{ dailyQuote.quote }} "
-                </p>
-                <div class="flex items-center gap-3 text-black/70 font-bold uppercase tracking-[0.15em] text-[0.75rem]">
-                  <div class="w-8 h-[2px] bg-black/20"></div>
-                  - {{ dailyQuote.author }}
-                </div>
-              </div>
+      <!-- Daily Motivation Card -->
+      <section class="athl-motivation animate-in" style="animation-delay: 0.1s">
+        <div class="athl-motivation-card">
+          <div class="athl-motivation-glow"></div>
+          <div class="athl-motivation-inner">
+            <span class="athl-motivation-label">DAILY FUEL</span>
+            <p class="athl-motivation-quote">
+              "{{ dailyQuote.quote }}"
+            </p>
+            <div class="athl-motivation-author">
+              <div class="athl-motivation-line"></div>
+              <span>{{ dailyQuote.author }}</span>
             </div>
           </div>
-          
         </div>
       </section>
 
-      <div class="section-title-bar animate-in animate-in-delay-2">
-        <h2>Your groups</h2>
-      </div>
-
-      <!-- Filters from inspo -->
-      <div class="filters-scroll animate-in animate-in-delay-2">
-        <button class="filter-chip" :class="{ active: activeFilter === 'all' }" @click="activeFilter = 'all'">All Challenges</button>
-        <button class="filter-chip" :class="{ active: activeFilter === 'in-progress' }" @click="activeFilter = 'in-progress'">In Progress</button>
-        <button class="filter-chip" :class="{ active: activeFilter === 'completed' }" @click="activeFilter = 'completed'">Completed</button>
-      </div>
-
-      <div v-if="groups.loading" class="groups-list">
-        <div v-for="i in 3" :key="i" class="glass-card skeleton-card">
-           <div class="skeleton-img"></div>
-           <div class="p-6">
-             <div class="skeleton h-6 w-3/4 mb-4"></div>
-             <div class="skeleton h-4 w-1/2"></div>
-           </div>
+      <div v-if="groups.loading" class="athl-skeleton-block">
+        <div class="athl-skeleton-top"></div>
+        <div class="athl-skeleton-body">
+            <div class="athl-skeleton-line" style="width: 80%"></div>
+            <div class="athl-skeleton-line" style="width: 60%"></div>
+            <div class="athl-skeleton-line" style="width: 70%"></div>
         </div>
       </div>
-
-      <div v-else-if="filteredGroups.length === 0 && groups.groups.length === 0" class="empty-state animate-in animate-in-delay-3">
-        <div class="empty-illustration">🏋️‍♂️</div>
-        <h3>No challenges active</h3>
-        <p>Start your transformation by joining or creating a group.</p>
-        <router-link to="/groups/create" class="btn btn-primary mt-4">
-          Create Group
-        </router-link>
-      </div>
-
-      <div v-else-if="filteredGroups.length === 0" class="empty-state animate-in animate-in-delay-3">
-        <div class="empty-illustration">{{ activeFilter === 'completed' ? '🏆' : '🔍' }}</div>
-        <h3>{{ activeFilter === 'completed' ? 'No completed challenges yet' : 'No challenges in progress' }}</h3>
-        <p>{{ activeFilter === 'completed' ? 'Keep pushing — your victories will show up here!' : 'All your challenges have ended. Start a new one!' }}</p>
-      </div>
-
-      <div v-else class="groups-list">
-        <router-link
-          v-for="(group, idx) in filteredGroups"
-          :key="group.id"
-          :to="`/groups/${group.id}`"
-          class="group-card-premium animate-in"
-          :class="`animate-in-delay-${Math.min(idx + 1, 4)}`"
-          :style="{ '--card-accent': idx % 2 === 0 ? 'var(--accent-purple)' : 'var(--accent-coral)' }"
-        >
-          <div class="card-bg-decoration"></div>
-          <div class="card-content">
-            <div class="card-header">
-              <h3 class="group-name">{{ group.name }}</h3>
-              <div class="duration-badge">
-                 <span class="text-xs uppercase font-bold text-white/60">Duration</span>
-                 <span class="font-bold text-lg">{{ group.totalWeeks }} Weeks</span>
-              </div>
+      <div v-else>
+        <!-- Quick Stats -->
+        <section class="dash-section animate-in" style="animation-delay: 0.15s">
+          <div class="dash-stats-grid">
+            <div class="dash-stat-box">
+              <span class="dash-stat-label">GROUPS</span>
+              <span class="dash-stat-value">{{ groups.groups.length }}</span>
             </div>
-
-            <div class="card-footer">
-              <div class="card-category">
-                <span class="category-pill">{{ group.myRole }}</span>
-                <span class="exercise-count">{{ group.memberCount }} Members</span>
-              </div>
-              <div class="card-details">
-                {{ group.description || 'Join the transformation journey and push your limits.' }}
-              </div>
+            <div class="dash-stat-box">
+              <span class="dash-stat-label">TOTAL LOGS</span>
+              <span class="dash-stat-value">{{ groups.dashboardStats.totalLogs }}</span>
+            </div>
+            <div class="dash-stat-box">
+              <span class="dash-stat-label">CURRENT LBS</span>
+              <span class="dash-stat-value">{{ groups.dashboardStats.currentWeight || '--' }}</span>
+              <span class="dash-stat-trend" v-if="groups.dashboardStats.weightChange != null" :class="groups.dashboardStats.weightChange <= 0 ? 'trend-good' : 'trend-bad'">
+                {{ groups.dashboardStats.weightChange > 0 ? '+' : '' }}{{ groups.dashboardStats.weightChange }}
+              </span>
+            </div>
+            <div class="dash-stat-box">
+              <span class="dash-stat-label">AVG CALS (7D)</span>
+              <span class="dash-stat-value">{{ groups.dashboardStats.avgCalories || '--' }}</span>
             </div>
           </div>
-          <div class="card-progression">
-             <div class="progression-label">{{ getWeeksRemaining(group.endDate) }} weeks left</div>
-             <div class="progression-bar-container">
-                <div class="progression-fill" :style="{ width: Math.min(100, Math.max(0, ((group.totalWeeks - getWeeksRemaining(group.endDate)) / group.totalWeeks) * 100)) + '%' }"></div>
+        </section>
+
+        <!-- Weight Trend Sparkline -->
+        <section v-if="groups.dashboardStats.weightTrend && groups.dashboardStats.weightTrend.length > 1" class="dash-section animate-in" style="animation-delay: 0.2s">
+          <div class="dash-header">
+            <h2 class="dash-title">WEIGHT TREND</h2>
+            <span class="dash-subtitle">LAST {{ groups.dashboardStats.weightTrend.length }} LOGS</span>
+          </div>
+          <div class="dash-chart-card">
+            <div class="sparkline-container">
+               <svg class="sparkline" viewBox="0 0 100 30" preserveAspectRatio="none">
+                  <!-- Generate polyline points dynamically. X=0 to 100, Y=30 to 0 (inverted) -->
+                  <polyline
+                    fill="none"
+                    stroke="#DFFF00"
+                    stroke-width="2"
+                    :points="groups.dashboardStats.weightTrend.map((log, i, arr) => {
+                       const x = (i / (arr.length - 1)) * 100;
+                       const min = Math.min(...arr.map(a => a.weight_lbs));
+                       const max = Math.max(...arr.map(a => a.weight_lbs));
+                       const range = max - min || 1;
+                       const y = 30 - (((log.weight_lbs - min) / range) * 20 + 5);
+                       return `${x},${y}`;
+                    }).join(' ')"
+                  />
+                  <!-- Dots -->
+                  <circle v-for="(log, i) in groups.dashboardStats.weightTrend" :key="log.log_date"
+                    :cx="(i / (groups.dashboardStats.weightTrend.length - 1)) * 100"
+                    :cy="30 - (((log.weight_lbs - Math.min(...groups.dashboardStats.weightTrend.map(a=>a.weight_lbs))) / (Math.max(...groups.dashboardStats.weightTrend.map(a=>a.weight_lbs)) - Math.min(...groups.dashboardStats.weightTrend.map(a=>a.weight_lbs)) || 1)) * 20 + 5)"
+                    r="1.5" fill="#0e0e0e" stroke="#DFFF00" stroke-width="0.5" />
+               </svg>
+            </div>
+            <div class="chart-labels">
+               <span>{{ formatDate(groups.dashboardStats.weightTrend[0]?.log_date) }}</span>
+               <span>{{ formatDate(groups.dashboardStats.weightTrend[groups.dashboardStats.weightTrend.length-1]?.log_date) }}</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Groups At A Glance -->
+        <section class="dash-section animate-in" style="animation-delay: 0.25s">
+          <div class="dash-header">
+            <h2 class="dash-title">ACTIVE GROUPS</h2>
+            <router-link to="/groups" class="dash-view-all">VIEW ALL <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></router-link>
+          </div>
+          
+          <div v-if="groups.groups.length === 0" class="dash-empty-box">
+             <span class="empty-icon">🛡️</span>
+             <p>No active groups.</p>
+             <router-link to="/groups/create" class="dash-cta-btn">CREATE ONE</router-link>
+          </div>
+          <div v-else class="dash-groups-scroll">
+            <router-link v-for="group in groups.groups.filter(g => new Date(g.endDate) >= new Date()).slice(0, 4)" :key="group.id" :to="`/groups/${group.id}`" class="dash-mini-group-card">
+              <div class="mini-group-top">
+                <span class="mini-badge">{{ group.myRole }}</span>
+                <span class="mini-members"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/></svg> {{ group.memberCount }}</span>
+              </div>
+              <h3 class="mini-group-name">{{ group.name }}</h3>
+              <div class="mini-group-progress">
+                 <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" :style="{ width: Math.min(100, Math.max(0, ((group.totalWeeks - getWeeksRemaining(group.endDate)) / group.totalWeeks) * 100)) + '%' }"></div>
+                 </div>
+              </div>
+            </router-link>
+          </div>
+        </section>
+
+        <!-- Upcoming Targets -->
+        <section v-if="groups.dashboardStats.upcomingTargets && groups.dashboardStats.upcomingTargets.length > 0" class="dash-section animate-in" style="animation-delay: 0.3s">
+          <div class="dash-header">
+            <h2 class="dash-title">THIS WEEK'S TARGETS</h2>
+          </div>
+          <div class="dash-list">
+             <router-link v-for="target in groups.dashboardStats.upcomingTargets" :key="target.id" :to="`/groups/${target.groupId}`" class="dash-list-item">
+               <div class="target-info">
+                 <span class="target-weight">{{ target.target_weight }}<small>lbs</small></span>
+                 <span class="target-group">{{ target.groupName }} (Wk {{ target.currentWeek }})</span>
+               </div>
+               <div class="target-status" :class="target.actual_weight ? 'status-done' : 'status-pending'">
+                 {{ target.actual_weight ? 'LOGGED' : 'PENDING' }}
+               </div>
+             </router-link>
+          </div>
+        </section>
+
+        <!-- Recent Activity Feed -->
+        <section class="dash-section animate-in" style="animation-delay: 0.35s">
+          <div class="dash-header">
+            <h2 class="dash-title">RECENT LOGS</h2>
+          </div>
+          <div v-if="groups.dashboardStats.recentActivity && groups.dashboardStats.recentActivity.length > 0" class="dash-activity-feed">
+             <div v-for="log in groups.dashboardStats.recentActivity" :key="log.id" class="activity-card">
+               <div class="activity-left">
+                  <div class="activity-icon">⚖️</div>
+                  <div class="activity-details">
+                    <span class="activity-desc">
+                      Logged <strong v-if="log.weightLbs">{{ log.weightLbs }} lbs</strong>
+                      <span v-if="log.weightLbs && log.calories"> / </span>
+                      <strong v-if="log.calories">{{ log.calories }} kcal</strong>
+                    </span>
+                    <span class="activity-group">{{ log.groupName }}</span>
+                    <p v-if="log.notes" class="activity-note">"{{ log.notes }}"</p>
+                  </div>
+               </div>
+               <span class="activity-date">{{ formatDate(log.logDate) }}</span>
              </div>
           </div>
-        </router-link>
+          <div v-else class="dash-empty-box">
+             <span class="empty-icon">📝</span>
+             <p>No recent activity. Log your first weight!</p>
+          </div>
+        </section>
+
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.dashboard-page {
-  background: var(--bg-primary);
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+/* ── Page ── */
+.athl-page {
+  background: #0e0e0e;
   min-height: 100vh;
-}
-
-.dashboard-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 32px 0 24px;
-}
-
-.user-profile-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.avatar-container {
+  padding-top: max(24px, calc(12px + env(safe-area-inset-top)));
+  padding-bottom: max(120px, calc(100px + env(safe-area-inset-bottom)));
   position: relative;
+  overflow-x: hidden;
 }
 
-.status-indicator {
-  position: absolute;
-  bottom: 2px;
-  right: 2px;
-  width: 14px;
-  height: 14px;
-  background: var(--accent-lime);
-  border: 3px solid var(--bg-primary);
-  border-radius: 50%;
-}
-
-.user-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.greeting-text {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 1.4rem;
-  letter-spacing: -0.02em;
-}
-
-.user-rank {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.bolt-icon {
-  color: var(--accent-lime);
-}
-
-/* Featured Section */
-.featured-section {
-  margin-bottom: 32px;
-}
-
-.featured-card {
-  background: var(--accent-lime);
-  border-radius: var(--radius-card);
-  padding: 32px;
-  color: #000;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 20px 40px var(--accent-lime-dim);
-}
-
-.featured-card::before {
+.athl-page::before {
   content: '';
-  position: absolute;
-  top: -20%;
-  right: -10%;
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(circle, rgba(0,0,0,0.05) 0%, transparent 70%);
-  border-radius: 50%;
-}
-
-.featured-content {
-  position: relative;
-  z-index: 1;
-}
-
-.featured-label {
-  font-size: 0.85rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  opacity: 0.6;
-}
-
-.featured-title {
-  font-size: 2.25rem;
-  font-weight: 900;
-  margin: 4px 0 8px;
-  letter-spacing: -0.03em;
-}
-
-.featured-stats {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 1rem;
-  margin-bottom: 10px;
-}
-
-.divider { opacity: 0.4; }
-
-.btn-create-floating {
-  width: 44px;
-  height: 44px;
-  background: #fff;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  text-decoration: none;
-  transition: all 0.3s;
-}
-
-.btn-create-floating:hover {
-  transform: rotate(90deg) scale(1.1);
-}
-
-/* Circular Progress */
-.circular-progress-container {
-  width: 80px;
-  height: 80px;
-  position: relative;
-}
-
-.circular-chart {
-  display: block;
-  margin: 0 auto;
-}
-
-.circle-bg {
-  fill: none;
-  stroke: rgba(0,0,0,0.1);
-  stroke-width: 3;
-}
-
-.circle {
-  fill: none;
-  stroke: #000;
-  stroke-width: 3;
-  stroke-linecap: round;
-  transition: stroke-dasharray 0.3s ease;
-}
-
-.progress-text {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-weight: 800;
-  font-size: 0.9rem;
-}
-
-/* Section Title & Filters */
-.section-title-bar {
-  margin-bottom: 20px;
-}
-
-.section-title-bar h2 {
-  font-size: 1.75rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
-.filters-scroll {
-  display: flex;
-  gap: 12px;
-  overflow-x: auto;
-  padding-bottom: 24px;
-  scrollbar-width: none;
-}
-
-.filters-scroll::-webkit-scrollbar { display: none; }
-
-.filter-chip {
-  padding: 12px 24px;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-glass);
-  border-radius: var(--radius-full);
-  color: var(--text-secondary);
-  font-family: var(--font-heading);
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.filter-chip.active {
-  background: var(--text-primary);
-  color: var(--bg-primary);
-  border-color: var(--text-primary);
-}
-
-/* Groups List */
-.groups-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100%, 1fr));
-  gap: 24px;
-}
-
-.group-card-premium {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-card);
-  min-height: 200px;
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  text-decoration: none;
-  color: inherit;
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  border: 1px solid var(--border-subtle);
-}
-
-.group-card-premium:hover {
-  transform: scale(1.02);
-  border-color: var(--card-accent);
-  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-}
-
-.card-bg-decoration {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(circle at 100% 0%, var(--card-accent) 0%, transparent 60%);
-  opacity: 0.15;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background:
+    radial-gradient(ellipse at 10% 0%, rgba(223, 255, 0, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 90% 100%, rgba(179, 153, 255, 0.04) 0%, transparent 50%);
   pointer-events: none;
+  z-index: 0;
 }
 
-.card-content {
-  padding: 32px;
+.athl-container {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 20px;
+  position: relative;
   z-index: 1;
 }
 
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 16px;
-}
-
-.group-name {
-  font-size: 1.75rem;
-  font-weight: 900;
-  max-width: 60%;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-}
-
-.duration-badge {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  background: rgba(255,255,255,0.05);
-  padding: 10px 16px;
-  border-radius: 20px;
-  border: 1px solid rgba(255,255,255,0.1);
-}
-
-.card-footer {
-  margin-top: 12px;
-}
-
-.category-pill {
-  display: inline-block;
-  padding: 6px 14px;
-  background: var(--card-accent);
-  color: #000;
-  border-radius: var(--radius-full);
-  font-size: 0.75rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  margin-right: 12px;
-}
-
-.exercise-count {
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.card-details {
-  margin-top: 16px;
-  font-size: 1rem;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
+/* ── Push Banner ── */
+.athl-push-banner {
+  position: relative;
+  background: rgba(223, 255, 0, 0.04);
+  border: 1px solid rgba(223, 255, 0, 0.12);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 28px;
   overflow: hidden;
 }
-
-.card-progression {
-  background: rgba(0,0,0,0.2);
-  padding: 20px 32px;
-  border-top: 1px solid rgba(255,255,255,0.05);
+.athl-push-banner-glow {
+  position: absolute; top: -40%; right: -20%; width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(223, 255, 0, 0.08) 0%, transparent 70%);
+  border-radius: 50%; pointer-events: none;
+}
+.athl-push-content { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; position: relative; z-index: 1; }
+.athl-push-icon {
+  width: 40px; height: 40px; background: rgba(223, 255, 0, 0.1); border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; color: #DFFF00; flex-shrink: 0;
+  animation: athl-bell-pulse 2s ease-in-out infinite;
+}
+@keyframes athl-bell-pulse {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  25% { transform: scale(1.05) rotate(8deg); }
+  50% { transform: scale(1) rotate(-5deg); }
+  75% { transform: scale(1.02) rotate(3deg); }
+}
+.athl-push-text { display: flex; flex-direction: column; gap: 4px; }
+.athl-push-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.8rem; letter-spacing: 0.15em; color: #DFFF00; }
+.athl-push-desc { font-size: 0.82rem; color: #adaaaa; line-height: 1.4; }
+.athl-push-actions { display: flex; gap: 10px; position: relative; z-index: 1; }
+.athl-push-enable {
+  padding: 10px 28px; background: #DFFF00; color: #0e0e0e; border: none; border-radius: 6px;
+  font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.75rem; letter-spacing: 0.15em; cursor: pointer; transition: all 0.2s;
+}
+.athl-push-enable:active { transform: scale(0.95); }
+.athl-push-dismiss {
+  padding: 10px 20px; background: transparent; color: #777575; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px;
+  font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 0.75rem; letter-spacing: 0.1em; cursor: pointer; transition: all 0.2s;
 }
 
-.progression-label {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--text-secondary);
-  margin-bottom: 10px;
+.athl-banner-slide-enter-active { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.athl-banner-slide-leave-active { transition: all 0.3s ease; }
+.athl-banner-slide-enter-from, .athl-banner-slide-leave-to { opacity: 0; transform: translateY(-12px); max-height: 0; padding: 0 20px; margin-bottom: 0; }
+
+/* ── Hero ── */
+.athl-hero { margin-bottom: 32px; padding: 8px 0; }
+.athl-hero-top { display: flex; justify-content: space-between; align-items: flex-start; }
+.athl-hero-info { display: flex; flex-direction: column; gap: 4px; }
+.athl-hero-label { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: #DFFF00; }
+.athl-hero-name { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 2.8rem; line-height: 1; letter-spacing: -0.04em; color: #ffffff; text-transform: uppercase; font-style: italic; }
+.athl-hero-avatar { position: relative; width: 52px; height: 52px; flex-shrink: 0; }
+.athl-hero-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; border: 2px solid rgba(223, 255, 0, 0.25); }
+.athl-avatar-initials { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: linear-gradient(135deg, #262626, #1a1919); color: #DFFF00; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1rem; border-radius: 50%; border: 2px solid rgba(223, 255, 0, 0.25); }
+.athl-avatar-status { position: absolute; bottom: 0; right: 0; width: 14px; height: 14px; background: #DFFF00; border: 2px solid #0e0e0e; border-radius: 50%; z-index: 2; }
+
+/* ── Motivation ── */
+.athl-motivation { margin-bottom: 28px; }
+.athl-motivation-card {
+  position: relative; background: linear-gradient(135deg, #DFFF00 0%, #c8e600 50%, #b8d400 100%);
+  border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(223, 255, 0, 0.15), 0 4px 20px rgba(223, 255, 0, 0.1);
+}
+.athl-motivation-glow {
+  position: absolute; top: -30%; right: -15%; width: 300px; height: 300px;
+  background: radial-gradient(circle, rgba(0, 0, 0, 0.06) 0%, transparent 70%); border-radius: 50%; pointer-events: none;
+}
+.athl-motivation-inner { position: relative; z-index: 1; padding: 32px 28px; }
+.athl-motivation-label { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.65rem; letter-spacing: 0.25em; text-transform: uppercase; color: rgba(0, 0, 0, 0.5); display: block; margin-bottom: 16px; }
+.athl-motivation-quote { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.45rem; line-height: 1.35; color: #0e0e0e; letter-spacing: -0.02em; font-style: italic; margin-bottom: 20px; }
+.athl-motivation-author { display: flex; align-items: center; gap: 12px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(0, 0, 0, 0.55); }
+.athl-motivation-line { width: 28px; height: 2px; background: rgba(0, 0, 0, 0.2); }
+
+/* ── Dash Sections ── */
+.dash-section { margin-bottom: 32px; }
+.dash-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; }
+.dash-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.2rem; letter-spacing: -0.02em; color: #ffffff; text-transform: uppercase; font-style: italic; }
+.dash-subtitle { font-family: 'Space Grotesk', sans-serif; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.15em; color: #777575; }
+.dash-view-all { display: inline-flex; align-items: center; gap: 4px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.7rem; color: #DFFF00; text-decoration: none; letter-spacing: 0.1em; transition: opacity 0.2s;}
+.dash-view-all:hover { opacity: 0.8; }
+
+/* Stats Grid */
+.dash-stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.dash-stat-box {
+  background: #1a1919; border: 1px solid rgba(255,255,255,0.04); border-radius: 16px; padding: 20px;
+  display: flex; flex-direction: column; gap: 6px; position: relative;
+}
+.dash-stat-label { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 0.6rem; letter-spacing: 0.15em; color: #adaaaa; text-transform: uppercase; }
+.dash-stat-value { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.8rem; color: #fff; line-height: 1; letter-spacing: -0.02em; }
+.dash-stat-trend { position: absolute; top: 20px; right: 20px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; }
+.trend-good { background: rgba(223,255,0,0.15); color: #DFFF00; }
+.trend-bad { background: rgba(255,112,67,0.15); color: #ff7043; }
+
+/* Chart */
+.dash-chart-card { background: #1a1919; border: 1px solid rgba(255,255,255,0.04); border-radius: 16px; padding: 24px; }
+.sparkline-container { width: 100%; height: 60px; }
+.sparkline { width: 100%; height: 100%; overflow: visible; }
+.chart-labels { display: flex; justify-content: space-between; margin-top: 10px; font-size: 0.65rem; color: #777575; font-family: 'Space Grotesk', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Groups Scroll */
+.dash-groups-scroll { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
+.dash-groups-scroll::-webkit-scrollbar { display: none; }
+.dash-mini-group-card {
+  min-width: 200px; background: #1a1919; border: 1px solid rgba(255,255,255,0.04); border-radius: 16px; padding: 16px;
+  text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 12px; transition: transform 0.2s;
+}
+.dash-mini-group-card:active { transform: scale(0.98); }
+.mini-group-top { display: flex; justify-content: space-between; align-items: center; }
+.mini-badge { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.55rem; padding: 3px 8px; background: rgba(255,255,255,0.08); border-radius: 4px; color: #adaaaa; letter-spacing: 0.1em; }
+.mini-members { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: #777575; font-family: 'Space Grotesk', sans-serif; font-weight: 600; }
+.mini-group-name { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.1rem; color: #fff; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-group-progress { width: 100%; }
+.progress-bar-bg { height: 4px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: #DFFF00; border-radius: 4px; }
+
+/* Lists (Targets & Activity) */
+.dash-list { display: flex; flex-direction: column; gap: 8px; }
+.dash-list-item {
+  display: flex; justify-content: space-between; align-items: center; background: #1a1919; border: 1px solid rgba(255,255,255,0.04);
+  padding: 16px; border-radius: 12px; text-decoration: none; transition: transform 0.2s;
+}
+.dash-list-item:active { transform: scale(0.98); }
+.target-info { display: flex; flex-direction: column; gap: 4px; }
+.target-weight { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.2rem; color: #fff; }
+.target-weight small { font-size: 0.7rem; color: #adaaaa; margin-left: 2px; }
+.target-group { font-size: 0.75rem; color: #777575; font-weight: 500; }
+.target-status { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.65rem; padding: 4px 10px; border-radius: 100px; letter-spacing: 0.1em; }
+.status-done { background: rgba(223,255,0,0.1); color: #DFFF00; }
+.status-pending { background: rgba(255,255,255,0.05); color: #adaaaa; }
+
+.dash-activity-feed { display: flex; flex-direction: column; gap: 8px; }
+.activity-card {
+  display: flex; justify-content: space-between; align-items: flex-start; background: #1a1919; border: 1px solid rgba(255,255,255,0.04);
+  padding: 16px; border-radius: 12px;
+}
+.activity-left { display: flex; gap: 12px; align-items: flex-start; }
+.activity-icon { width: 36px; height: 36px; background: rgba(255,255,255,0.03); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+.activity-details { display: flex; flex-direction: column; gap: 2px; }
+.activity-desc { font-size: 0.85rem; color: #fff; }
+.activity-desc strong { color: #DFFF00; font-weight: 600; }
+.activity-group { font-size: 0.7rem; color: #777575; }
+.activity-note { font-size: 0.8rem; color: #adaaaa; margin-top: 4px; font-style: italic; }
+.activity-date { font-size: 0.7rem; color: #777575; font-weight: 500; }
+
+/* Empty States */
+.dash-empty-box {
+  background: #1a1919; border: 1px dashed rgba(255,255,255,0.1); border-radius: 16px; padding: 30px 20px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 12px;
+}
+.empty-icon { font-size: 2rem; }
+.dash-empty-box p { color: #777575; font-size: 0.85rem; }
+.dash-cta-btn {
+  padding: 8px 20px; background: #DFFF00; color: #0e0e0e; border-radius: 6px; font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700; font-size: 0.7rem; text-decoration: none; letter-spacing: 0.1em; margin-top: 8px;
 }
 
-.progression-bar-container {
-  height: 6px;
-  background: rgba(255,255,255,0.05);
-  border-radius: var(--radius-full);
-  overflow: hidden;
+/* ── Skeleton ── */
+.athl-skeleton-block { margin-top: 20px; background: #1a1919; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.04); overflow: hidden; }
+.athl-skeleton-top { height: 6px; background: linear-gradient(90deg, rgba(255,255,255,0.02) 25%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.02) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+.athl-skeleton-body { padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.athl-skeleton-line { height: 14px; background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; }
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
-.progression-fill {
-  height: 100%;
-  background: var(--card-accent);
-  border-radius: var(--radius-full);
+/* ── Animations ── */
+.animate-in { animation: athl-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes athl-fade-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-/* Empty State */
-.empty-state {
-  text-align: center;
-  padding: 60px 24px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-card);
-  border: 1px dashed var(--border-glass);
-}
-
-.empty-illustration {
-  font-size: 4rem;
-  margin-bottom: 16px;
-}
-
-.pb-32 { padding-bottom: 128px; }
-
-@media (min-width: 1024px) {
-  .groups-list {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-/* Push Notification Banner */
-.push-banner {
-  background: rgba(217, 255, 77, 0.06);
-  border: 1px solid rgba(217, 255, 77, 0.15);
-  border-radius: var(--radius-lg);
-  padding: 20px 24px;
-  margin-bottom: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.push-banner-content {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex: 1;
-  min-width: 200px;
-}
-
-.push-banner-icon {
-  font-size: 1.8rem;
-  animation: bell-ring 2s ease-in-out infinite;
-}
-
-@keyframes bell-ring {
-  0%, 100% { transform: rotate(0deg); }
-  10% { transform: rotate(14deg); }
-  20% { transform: rotate(-14deg); }
-  30% { transform: rotate(10deg); }
-  40% { transform: rotate(-6deg); }
-  50% { transform: rotate(0deg); }
-}
-
-.push-banner-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.push-banner-text strong {
-  font-family: var(--font-heading);
-  font-size: 0.95rem;
-  font-weight: 700;
-}
-
-.push-banner-text span {
-  font-size: 0.83rem;
-  color: var(--text-secondary);
-}
-
-.push-banner-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.push-banner-enable {
-  padding: 10px 22px;
-  background: var(--gradient-lime);
-  color: #000;
-  border: none;
-  border-radius: var(--radius-full);
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.3s;
-  box-shadow: 0 4px 16px var(--accent-lime-glow);
-}
-
-.push-banner-enable:hover {
-  transform: scale(1.05);
-  box-shadow: 0 6px 24px var(--accent-lime-glow);
-}
-
-.push-banner-dismiss {
-  padding: 10px 18px;
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-full);
-  font-family: var(--font-heading);
-  font-weight: 600;
-  font-size: 0.83rem;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.push-banner-dismiss:hover {
-  color: var(--text-secondary);
-  border-color: var(--border-glass);
-}
-
-.banner-slide-enter-active {
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.banner-slide-leave-active {
-  transition: all 0.3s ease;
-}
-.banner-slide-enter-from,
-.banner-slide-leave-to {
-  opacity: 0;
-  transform: translateY(-10px);
-  max-height: 0;
-  padding: 0 24px;
-  margin-bottom: 0;
-}
-
-@media (max-width: 640px) {
-  .featured-card { padding: 24px; }
-  .featured-title { font-size: 1.75rem; }
-  .group-name { font-size: 1.5rem; }
-  .card-content { padding: 24px; }
-  .push-banner {
-    flex-direction: column;
-    align-items: flex-start;
-  }
+/* ── Responsive ── */
+@media (min-width: 768px) {
+  .athl-hero-name { font-size: 3.5rem; }
+  .athl-motivation-quote { font-size: 1.65rem; }
+  .dash-stats-grid { grid-template-columns: repeat(4, 1fr); }
 }
 </style>
-

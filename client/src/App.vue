@@ -12,8 +12,7 @@ const notifs = useNotificationStore()
 const router = useRouter()
 
 onMounted(async () => {
-  if (auth.token) {
-    await auth.fetchMe()
+  if (auth.isAuthenticated) {
     await notifs.fetchNotifications()
   }
 

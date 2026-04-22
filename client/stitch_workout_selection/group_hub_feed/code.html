@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Manrope:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary-dim": "#d0ed00",
+              "tertiary-container": "#fdd73e",
+              "surface-tint": "#f6ffc0",
+              "primary-fixed": "#daf900",
+              "outline": "#777575",
+              "on-tertiary-fixed-variant": "#675400",
+              "secondary-container": "#474746",
+              "tertiary": "#ffe798",
+              "tertiary-fixed": "#fdd73e",
+              "secondary-dim": "#d6d4d3",
+              "surface-container-lowest": "#000000",
+              "on-surface": "#ffffff",
+              "tertiary-fixed-dim": "#eec930",
+              "surface": "#0e0e0e",
+              "error-container": "#b92902",
+              "on-surface-variant": "#adaaaa",
+              "error-dim": "#d53d18",
+              "on-secondary-fixed": "#403f3f",
+              "error": "#ff7351",
+              "outline-variant": "#494847",
+              "on-primary": "#586500",
+              "inverse-primary": "#586500",
+              "surface-container-highest": "#262626",
+              "on-primary-fixed": "#3f4900",
+              "on-error-container": "#ffd2c8",
+              "surface-container-high": "#201f1f",
+              "on-primary-fixed-variant": "#596700",
+              "surface-variant": "#262626",
+              "primary-fixed-dim": "#cdea00",
+              "on-secondary-container": "#d2d0cf",
+              "surface-container": "#1a1919",
+              "on-primary-container": "#505d00",
+              "secondary": "#e5e2e1",
+              "on-tertiary": "#665300",
+              "on-background": "#ffffff",
+              "inverse-on-surface": "#565554",
+              "background": "#0e0e0e",
+              "tertiary-dim": "#eec930",
+              "surface-bright": "#2c2c2c",
+              "secondary-fixed-dim": "#d6d4d3",
+              "on-secondary-fixed-variant": "#5c5b5b",
+              "surface-container-low": "#131313",
+              "secondary-fixed": "#e5e2e1",
+              "surface-dim": "#0e0e0e",
+              "inverse-surface": "#fcf8f8",
+              "primary-container": "#daf900",
+              "on-tertiary-container": "#5c4b00",
+              "primary": "#f6ffc0",
+              "on-tertiary-fixed": "#463900",
+              "on-secondary": "#525151",
+              "on-error": "#450900"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Manrope"],
+              "label": ["Manrope"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      ::-webkit-scrollbar { display: none; }
+      body { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface font-body selection:bg-primary selection:text-on-primary">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-[#0e0e0e]/80 backdrop-blur-xl shadow-[0_10px_40px_-15px_rgba(223,255,0,0.08)]">
+<div class="flex items-center justify-between px-6 h-16 w-full">
+<div class="flex items-center gap-4">
+<button class="active:scale-95 duration-200">
+<span class="material-symbols-outlined text-[#DFFF00]">menu</span>
+</button>
+<h1 class="font-['Space_Grotesk'] uppercase tracking-tighter font-bold text-2xl font-black tracking-tighter text-[#DFFF00]">FORGE KINETIC</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest overflow-hidden border border-outline-variant/30">
+<img class="w-full h-full object-cover" data-alt="close up portrait of a focused athlete with intense expression and dramatic cinematic lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCn_jfowfHe0nif4y1kRIO0HQLuXpG8erAYn6PoYC_coTXypnkk_fOqlyP0EQSjoVwiAwAo1FJMbEh-RBi5dL-d2s4-iXVNnOoHZxmLhUZNUTmWvVZinBIwm3F12uD_J_83VxlK513e14GPDUmlS1D3BOjqAlhITg1XQJC5b7jIq70Gnz8Eg94XEFhfSoGTeKcaFTUVhOSoOoQIVj4e05Azw2CwKZbKyj5E9Vfn6yGuMoobVrfR9Vv7SKdsLRoeWuPETb_1hksM0bZK"/>
+</div>
+</div>
+</div>
+</header>
+<main class="pt-20 pb-32 px-6 max-w-2xl mx-auto">
+<!-- Navigation Pills -->
+<nav class="flex items-center gap-2 mb-8 overflow-x-auto pb-2 no-scrollbar">
+<button class="px-6 py-2 rounded-full font-headline font-bold text-xs tracking-widest text-on-surface-variant hover:text-primary transition-colors duration-200">ALL</button>
+<button class="px-6 py-2 rounded-full font-headline font-bold text-xs tracking-widest text-on-surface-variant hover:text-primary transition-colors duration-200">LEADERBOARD</button>
+<button class="px-6 py-2 rounded-full font-headline font-bold text-xs tracking-widest text-on-surface-variant hover:text-primary transition-colors duration-200">TARGETS</button>
+<button class="px-6 py-2 rounded-full font-headline font-bold text-xs tracking-widest bg-primary-container text-on-primary-container shadow-[0_0_20px_rgba(223,255,0,0.2)]">FEED</button>
+</nav>
+<!-- Section Header -->
+<div class="mb-10">
+<h2 class="font-headline text-4xl font-black uppercase tracking-tighter leading-none mb-1">TEAM ALPHA<span class="text-primary-fixed">_</span></h2>
+<p class="text-on-surface-variant font-label text-xs uppercase tracking-[0.2em]">Live Activity Stream • Oct 24</p>
+</div>
+<!-- Vertical Timeline Feed -->
+<div class="relative space-y-12">
+<!-- Timeline Line -->
+<div class="absolute left-4 top-2 bottom-0 w-[2px] bg-gradient-to-b from-primary/30 via-surface-container-highest to-transparent"></div>
+<!-- Feed Item 1 -->
+<div class="relative pl-12">
+<div class="absolute left-2.5 top-0 w-3 h-3 rounded-full bg-primary shadow-[0_0_15px_rgba(223,255,0,0.8)] z-10"></div>
+<div class="bg-surface-container-low p-5 rounded-xl border-l-2 border-primary/20 relative group hover:bg-surface-container transition-colors duration-300">
+<div class="flex justify-between items-start mb-3">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg overflow-hidden bg-surface-container-highest">
+<img class="w-full h-full object-cover" data-alt="headshot of a muscular man with a beard looking sternly into the camera" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCCB19a-YuK9WunDnCzrjvCQ2GEe3vBrg5J680ReQYvVod4d03YelG-Wiu4HWdlbxEYYgfDWWvHOL1lCpzdmTIyT5StVAHKdzh-uxr_rRpU3kGhjH7iK9K9i0vvF1PTTlON-az70OCLJv-in81ADQLjww_EHneMgwN1k-7ZS3ltu-fdlCO7OimKX2ldedIbw19S4TmH8fD8VU5Hlq9gmdg9aulp-dWqMg9imXAULA9PIoriQ0aE6x1jmtnGy2rUmP7lzyg64HUuW1vx"/>
+</div>
+<div>
+<h3 class="font-headline font-bold text-sm uppercase tracking-tight">Ivan Petrov</h3>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest font-semibold">14:20 • Updated Targets</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-primary/40 group-hover:text-primary transition-colors">bolt</span>
+</div>
+<p class="text-on-surface text-sm leading-relaxed mb-4">
+                        Updated weekly squat volume to <span class="text-primary font-bold">14,500 KG</span>. Heavy singles focused on depth and explosive drive.
+                    </p>
+<div class="flex items-center gap-6 pt-4 border-t border-outline-variant/10">
+<button class="flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">favorite</span> 12
+                        </button>
+<button class="flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm">chat_bubble</span> 4
+                        </button>
+</div>
+</div>
+</div>
+<!-- Feed Item 2 -->
+<div class="relative pl-12">
+<div class="absolute left-2.5 top-0 w-3 h-3 rounded-full bg-surface-container-highest border border-primary/40 z-10"></div>
+<div class="bg-surface-container-low p-5 rounded-xl border-l-2 border-transparent hover:border-primary/20 transition-all duration-300">
+<div class="flex justify-between items-start mb-3">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg overflow-hidden bg-surface-container-highest">
+<img class="w-full h-full object-cover" data-alt="fitness athlete performing a heavy leg press in a dark gym setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBTCB1pU5XEmVduOk27MvXwJ-xffiT2k_ssf6jOTBmH4jA1OZL7k2S-TUziLq2wSvDPqXsOUVZT-5aVlAqax7UQx5sgSGwPMKi-iRd7L--t7K8WQ0atnMNqsWbZSqxbIvltXAwePoxn6YaXVtqTR5m7fuldjuBh5-MqhLvWYLtx0uKCbcgsUGT-OJBDxLSQm1hAAeSPrhTodyBMnwDVKIRuKzA-7S5DoetRQwHQhgJQqaepz9Rk6R6UrYej0suaIYLDooN1L4bdThoP"/>
+</div>
+<div>
+<h3 class="font-headline font-bold text-sm uppercase tracking-tight">Gabriel Vance</h3>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest font-semibold">12:05 • Workout Complete</p>
+</div>
+</div>
+<div class="px-2 py-1 rounded bg-primary/10 text-primary text-[9px] font-black uppercase tracking-tighter">ELITE</div>
+</div>
+<div class="bg-surface-container-highest/50 p-3 rounded-lg border border-outline-variant/10 mb-4">
+<div class="flex items-center justify-between">
+<span class="text-xs font-headline font-bold uppercase">Leg Day Protocol</span>
+<span class="text-xs text-primary font-black">74 MIN</span>
+</div>
+<div class="mt-2 grid grid-cols-3 gap-2">
+<div class="text-[10px] text-on-surface-variant uppercase font-bold">14 SETS</div>
+<div class="text-[10px] text-on-surface-variant uppercase font-bold text-center">88% MAX</div>
+<div class="text-[10px] text-on-surface-variant uppercase font-bold text-right">920 KCAL</div>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<button class="flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm">favorite</span> 28
+                        </button>
+<button class="flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm">chat_bubble</span> 9
+                        </button>
+</div>
+</div>
+</div>
+<!-- Feed Item 3 (Photo Entry) -->
+<div class="relative pl-12">
+<div class="absolute left-2.5 top-0 w-3 h-3 rounded-full bg-surface-container-highest border border-primary/40 z-10"></div>
+<div class="bg-surface-container-low p-5 rounded-xl border-l-2 border-transparent">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded-lg overflow-hidden bg-surface-container-highest">
+<img class="w-full h-full object-cover" data-alt="woman athlete in athletic gear preparing for a lift in a modern high performance gym" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCrLUjtvT22wvX6aj0z2XczOrF8ADEGyBoFzHPPaU0k1k91N9TaNl8Ky0XPMw_p6tSFNEWNv3j-ymwMbCfSzPg1fFVoWKX94uw3iX32LalIvg8gYX38hKFWDMYh96MhyPjdakcarCUX09xmJxG7UczerSTAfW3D7hg1dD6oUZcMlaynIrmMkiAWcvwRRdzMazrX-fLXYRFfrcMR39Npe4w-jwRKO7FkAVi6AACfJkJgq3BnXirZnL_6Un7-PFR9RXHkSACh0GMcPwkK"/>
+</div>
+<div>
+<h3 class="font-headline font-bold text-sm uppercase tracking-tight">Elena Rossi</h3>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest font-semibold">09:15 • Check-in</p>
+</div>
+</div>
+<div class="relative aspect-video rounded-xl overflow-hidden mb-4 group cursor-pointer">
+<img class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-700" data-alt="moody gym interior with barbell on floor and shadows cast by high contrast lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAfnRx-QWMMQvx5fG2PrGp1PTpAu3yjHRUoUggL7A_NEaLw3Rs5IUoHUSzsH9xv5hKVKFejqqC1dVvfr5GN6evAFn-Z1AwMivHcdbE1Z2Ip1HgcR18NHu9tRZBsUs9BeTnuxwrPA-QmIvcGQVQgk0VicZvtOrMpvj1tSrvRn-xkOtHY_BGOlRnVdK3yLljcFVdS25Bft0eXRQUCJfmmDgTALBw3Vfanp4mUvE-vP18vWurPymL-hVYTSXbxIXAPjv63zt88FiB8in_y"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-4">
+<p class="text-xs text-white/90 font-medium">Empty gym at 5AM. No excuses.</p>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<button class="flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm">favorite</span> 56
+                        </button>
+<button class="flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm">chat_bubble</span> 2
+                        </button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50">
+<div class="bg-[#131313]/90 backdrop-blur-2xl rounded-t-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.5)] flex justify-around items-center px-4 pb-6 pt-3">
+<button class="flex flex-col items-center justify-center text-[#adaaaa] px-4 py-2 hover:bg-white/5 transition-all active:scale-90 duration-300">
+<span class="material-symbols-outlined mb-1">home</span>
+<span class="font-['Manrope'] text-[10px] font-bold tracking-widest uppercase">HOME</span>
+</button>
+<button class="flex flex-col items-center justify-center text-[#DFFF00] bg-[#DFFF00]/10 rounded-xl px-4 py-2 active:scale-90 duration-300">
+<span class="material-symbols-outlined mb-1" style="font-variation-settings: 'FILL' 1;">group</span>
+<span class="font-['Manrope'] text-[10px] font-bold tracking-widest uppercase">GROUPS</span>
+</button>
+<button class="flex flex-col items-center justify-center text-[#adaaaa] px-4 py-2 hover:bg-white/5 transition-all active:scale-90 duration-300">
+<span class="material-symbols-outlined mb-1">fitness_center</span>
+<span class="font-['Manrope'] text-[10px] font-bold tracking-widest uppercase">WORKOUT</span>
+</button>
+<button class="flex flex-col items-center justify-center text-[#adaaaa] px-4 py-2 hover:bg-white/5 transition-all active:scale-90 duration-300">
+<span class="material-symbols-outlined mb-1">restaurant</span>
+<span class="font-['Manrope'] text-[10px] font-bold tracking-widest uppercase">NUTRITION</span>
+</button>
+<button class="flex flex-col items-center justify-center text-[#adaaaa] px-4 py-2 hover:bg-white/5 transition-all active:scale-90 duration-300">
+<span class="material-symbols-outlined mb-1">person</span>
+<span class="font-['Manrope'] text-[10px] font-bold tracking-widest uppercase">PROFILE</span>
+</button>
+</div>
+</nav>
+</body></html>

@@ -141,7 +141,7 @@
 }
 
 /* ── TAB CONTENT ── */
-.tab-content { display: flex; flex-direction: column; gap: 16px; }
+.tab-content { display: flex; flex-direction: column; gap: 16px; padding-bottom: 80px; }
 
 /* ── FEED ── */
 .post-card-premium {
@@ -576,7 +576,10 @@
 
 /* ═══════ RESPONSIVE ═══════ */
 @media (max-width: 640px) {
-  .group-page-header { padding: 20px 0 16px; }
+  .group-page-header { 
+    padding: 20px 0 16px;
+    padding-top: max(20px, calc(16px + env(safe-area-inset-top)));
+  }
   .page-title { font-size: 1.5rem; }
   .panel-stats { padding: 18px 14px; }
   .ov-value { font-size: 1.3rem; }
