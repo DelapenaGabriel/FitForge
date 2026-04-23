@@ -106,6 +106,36 @@ export const useNotificationStore = defineStore('notifications', {
       }
     },
 
+    // ── Realtime Subscription ──────────────────────────
+    
+    subscribeToRealtime() {
+      const auth = useAuthStore()
+      if (!auth.user || this._channel) return
+
+      this._channel = supabase.channel('user-notifications')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${auth.user.id}` },
+          (payload) => {
+            const newNotif = payload.new
+            this.notifications.unshift(newNotif)
+            this.showToast({
+              type: newNotif.type,
+              title: newNotif.title,
+              message: newNotif.message
+            })
+          }
+        )
+        .subscribe()
+    },
+
+    unsubscribeFromRealtime() {
+      if (this._channel) {
+        supabase.removeChannel(this._channel)
+        this._channel = null
+      }
+    },
+
     // ── Local Panel & Toasts ───────────────────────────
     
     togglePanel() {
@@ -138,14 +168,30 @@ export const useNotificationStore = defineStore('notifications', {
       this.toastQueue = this.toastQueue.filter(t => t.id !== id)
     },
 
-    // ── Push Permission ────────────────────────────────
+    // ── Push Permission & Subscriptions ────────────────
     
+    urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4)
+      const base64 = (base64String + padding)
+        .replace(/\-/g, '+')
+        .replace(/_/g, '/')
+      const rawData = window.atob(base64)
+      const outputArray = new Uint8Array(rawData.length)
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i)
+      }
+      return outputArray
+    },
+
     async requestPushPermission() {
-      if (typeof Notification === 'undefined') return 'unsupported'
+      if (typeof Notification === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+        return 'unsupported'
+      }
       try {
         const result = await Notification.requestPermission()
         this.pushPermission = result
         if (result === 'granted') {
+          await this.subscribeToPush()
           this.showToast({
             type: 'success',
             title: '🔔 Notifications Enabled',
@@ -158,24 +204,34 @@ export const useNotificationStore = defineStore('notifications', {
       }
     },
 
-    _showNativePush(title, body) {
+    async subscribeToPush() {
+      const auth = useAuthStore()
+      if (!auth.user) return
+
       try {
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({
-            type: 'SHOW_NOTIFICATION',
-            title: `FitForge: ${title}`,
-            body,
-            icon: '/fitforge_lime.png'
-          })
-        } else {
-          new Notification(`FitForge: ${title}`, {
-            body,
-            icon: '/fitforge_lime.png',
-            badge: '/fitforge_lime.png'
-          })
-        }
-      } catch {
-        // Silently fail
+        const registration = await navigator.serviceWorker.ready
+        const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
+        
+        if (!vapidPublicKey) return
+
+        const convertedVapidKey = this.urlBase64ToUint8Array(vapidPublicKey)
+        
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey
+        })
+
+        // Save subscription to database
+        const subData = JSON.parse(JSON.stringify(subscription))
+        await supabase.from('push_subscriptions').upsert({
+          user_id: auth.user.id,
+          endpoint: subData.endpoint,
+          p256dh: subData.keys.p256dh,
+          auth: subData.keys.auth
+        }, { onConflict: 'user_id, endpoint' })
+        
+      } catch (err) {
+        console.error('Failed to subscribe to push:', err)
       }
     }
   }

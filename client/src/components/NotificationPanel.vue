@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotificationStore } from '@/stores/notifications'
 
@@ -8,6 +8,15 @@ const notifs = useNotificationStore()
 
 const now = ref(Date.now())
 let timer = null
+
+// Prevent body scrolling when panel is open
+watch(() => notifs.panelOpen, (isOpen) => {
+  if (isOpen) {
+    document.body.style.overflow = 'hidden'
+  } else {
+    document.body.style.overflow = ''
+  }
+})
 
 onMounted(() => {
   // Update the time every 10 seconds to ensure the 'time ago' strings stay fresh
@@ -18,6 +27,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  document.body.style.overflow = ''
 })
 
 const sortedNotifications = computed(() => notifs.sortedNotifications)
@@ -87,9 +97,52 @@ const handleNotificationClick = (notification) => {
   notifs.markAsRead(notification.id)
   notifs.closePanel()
   if (notification.route) {
-    router.push(notification.route)
+    let targetRoute = notification.route
+    if (targetRoute.startsWith('/app/')) {
+      targetRoute = targetRoute.replace('/app/', '/')
+    }
+    router.push(targetRoute)
   }
 }
+
+// Mobile Drag logic
+const touchStartY = ref(0)
+const touchCurrentY = ref(0)
+const isDragging = ref(false)
+
+const handleTouchStart = (e) => {
+  touchStartY.value = e.touches[0].clientY
+  touchCurrentY.value = e.touches[0].clientY
+  isDragging.value = true
+}
+
+const handleTouchMove = (e) => {
+  if (!isDragging.value) return
+  touchCurrentY.value = e.touches[0].clientY
+}
+
+const handleTouchEnd = () => {
+  if (!isDragging.value) return
+  isDragging.value = false
+  
+  const deltaY = touchCurrentY.value - touchStartY.value
+  if (deltaY > 80) { // Threshold to close
+    notifs.closePanel()
+  }
+  
+  touchStartY.value = 0
+  touchCurrentY.value = 0
+}
+
+const panelStyle = computed(() => {
+  if (!isDragging.value) return {}
+  const delta = Math.max(0, touchCurrentY.value - touchStartY.value)
+  if (delta === 0) return {}
+  return {
+    transform: `translateY(${delta}px)`,
+    transition: 'none'
+  }
+})
 </script>
 
 <template>
@@ -100,23 +153,33 @@ const handleNotificationClick = (notification) => {
 
   <!-- Panel -->
   <transition name="fk-panel-slide">
-    <div v-if="notifs.panelOpen" class="fk-notif-panel">
-      <!-- Header -->
-      <div class="fk-notif-header">
-        <div class="fk-notif-header-top">
-          <div class="fk-notif-brand">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="currentColor"/></svg>
-            <span>FORGE KINETIC</span>
-          </div>
-          <button class="fk-notif-bell-icon" @click="notifs.closePanel()">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          </button>
+    <div v-if="notifs.panelOpen" class="fk-notif-panel" :style="panelStyle">
+      
+      <!-- Mobile Drag Handle and Header -->
+      <div 
+        class="fk-notif-header-drag"
+        @touchstart="handleTouchStart"
+        @touchmove="handleTouchMove"
+        @touchend="handleTouchEnd"
+      >
+        <div class="fk-mobile-drag-area">
+          <div class="fk-drag-bar"></div>
         </div>
-        <h2 class="fk-notif-title">ACTIVITY</h2>
-        <div class="fk-notif-actions">
-          <button v-if="unreadCount > 0" class="fk-notif-action" @click="notifs.markAllAsRead()">
-            MARK ALL AS READ
-          </button>
+        <div class="fk-notif-header">
+          <div class="fk-notif-header-top">
+            <div class="fk-notif-title-wrapper">
+               <div class="fk-title-pulse-icon">
+                 <div class="fk-pulse-core"></div>
+                 <div class="fk-pulse-ring"></div>
+               </div>
+               <h2 class="fk-notif-title">ACTIVITY</h2>
+            </div>
+            <div class="fk-notif-actions">
+              <button v-if="unreadCount > 0" class="fk-notif-action" @click="notifs.markAllAsRead()">
+                MARK ALL AS READ
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -193,59 +256,97 @@ const handleNotificationClick = (notification) => {
   display: flex;
   flex-direction: column;
   box-shadow: -20px 0 80px rgba(0, 0, 0, 0.6);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Header */
+/* Header Drag Area */
+.fk-notif-header-drag {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  cursor: grab;
+  touch-action: none;
+}
+.fk-notif-header-drag:active {
+  cursor: grabbing;
+}
+
 .fk-notif-header {
   padding: 20px 24px 16px;
-  padding-top: calc(20px + env(safe-area-inset-top));
+  padding-top: calc(8px + env(safe-area-inset-top)); /* reduced top padding since drag bar gives space */
 }
 
 .fk-notif-header-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
-.fk-notif-brand {
+.fk-notif-title-wrapper {
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: #DFFF00;
-  font-family: 'Space Grotesk', sans-serif;
-  font-weight: 700;
-  font-style: italic;
-  font-size: 0.85rem;
-  letter-spacing: 0.02em;
+  gap: 14px;
 }
 
-.fk-notif-bell-icon {
-  width: 36px;
-  height: 36px;
+.fk-title-pulse-icon {
+  position: relative;
+  width: 14px;
+  height: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: none;
-  border: none;
-  color: rgba(255,255,255,0.5);
-  cursor: pointer;
-  transition: color 0.2s;
 }
 
-.fk-notif-bell-icon:hover {
-  color: #DFFF00;
+.fk-pulse-core {
+  width: 8px;
+  height: 8px;
+  background: #DFFF00;
+  border-radius: 50%;
+  z-index: 2;
+  box-shadow: 0 0 10px rgba(223, 255, 0, 0.5);
+}
+
+.fk-pulse-ring {
+  position: absolute;
+  inset: -6px;
+  border: 1px solid rgba(223, 255, 0, 0.6);
+  border-radius: 50%;
+  animation: fk-ring-pulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes fk-ring-pulse {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2.5); opacity: 0; }
 }
 
 .fk-notif-title {
   font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
   font-style: italic;
-  font-size: 2.8rem;
+  font-size: 2.2rem;
   letter-spacing: -0.02em;
   color: #fff;
   line-height: 1;
-  margin-bottom: 16px;
+  margin: 0;
+}
+
+/* Mobile Drag Area */
+.fk-mobile-drag-area {
+  display: none;
+  width: 100%;
+  padding: 16px 0 0px; /* Reduced bottom padding */
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  z-index: 10;
+}
+
+.fk-drag-bar {
+  width: 48px;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
 }
 
 .fk-notif-actions {
@@ -275,6 +376,8 @@ const handleNotificationClick = (notification) => {
 /* List */
 .fk-notif-list {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   padding: 8px 16px;
   scrollbar-width: thin;
@@ -296,11 +399,12 @@ const handleNotificationClick = (notification) => {
 
 /* Empty State */
 .fk-notif-empty {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 80px 24px;
+  padding: 24px;
   text-align: center;
 }
 
@@ -535,9 +639,30 @@ const handleNotificationClick = (notification) => {
   transform: translateX(-20px);
 }
 
-@media (max-width: 480px) {
+@media (max-width: 768px) {
   .fk-notif-panel {
+    top: auto;
+    bottom: 0;
+    right: 0;
+    left: 0;
     width: 100vw;
+    height: 75vh;
+    border-top-left-radius: 24px;
+    border-top-right-radius: 24px;
+    box-shadow: 0 -10px 50px rgba(0, 0, 0, 0.8);
+  }
+
+  .fk-mobile-drag-area {
+    display: flex;
+  }
+
+  .fk-notif-header {
+    padding-top: 4px; /* Less padding on top since we have the drag handle */
+  }
+
+  .fk-panel-slide-enter-from,
+  .fk-panel-slide-leave-to {
+    transform: translateY(100%);
   }
 }
 </style>

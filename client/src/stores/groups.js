@@ -408,11 +408,18 @@ export const useGroupStore = defineStore('groups', {
 
     async createPost(groupId, payload) {
       const auth = useAuthStore()
+      
+      const d = new Date()
+      const pad = (n) => n.toString().padStart(2, '0')
+      const localDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+      const localTimestamp = `${localDate}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+
       const { data: post, error } = await supabase
         .from('coach_posts')
         .insert({ 
           content: payload.content, 
           post_type: payload.postType || 'ADVICE',
+          created_at: localTimestamp,
           group_id: groupId, 
           author_id: auth.user.id 
         })
@@ -449,9 +456,15 @@ export const useGroupStore = defineStore('groups', {
 
     async createPostComment(groupId, postId, content) {
       const auth = useAuthStore()
+      
+      const d = new Date()
+      const pad = (n) => n.toString().padStart(2, '0')
+      const localDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+      const localTimestamp = `${localDate}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+
       const { data, error } = await supabase
         .from('post_comments')
-        .insert({ post_id: postId, author_id: auth.user.id, content })
+        .insert({ post_id: postId, author_id: auth.user.id, content, created_at: localTimestamp })
         .select('*, users(*)')
         .single()
         
@@ -603,6 +616,12 @@ export const useGroupStore = defineStore('groups', {
 
     async createLog(groupId, payload) {
       const auth = useAuthStore()
+      
+      const d = new Date()
+      const pad = (n) => n.toString().padStart(2, '0')
+      const localDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+      const localTimestamp = `${localDate}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+
       const { data, error } = await supabase
         .from('daily_logs')
         .insert({ 
@@ -610,7 +629,8 @@ export const useGroupStore = defineStore('groups', {
           calories: payload.calories ?? null,
           notes: payload.notes ?? null,
           pinned: payload.pinned ?? false,
-          log_date: new Date().toISOString().split('T')[0],
+          log_date: localDate,
+          created_at: localTimestamp,
           group_id: groupId, 
           user_id: auth.user.id 
         })
@@ -697,9 +717,15 @@ export const useGroupStore = defineStore('groups', {
 
     async createLogComment(groupId, logId, content) {
       const auth = useAuthStore()
+      
+      const d = new Date()
+      const pad = (n) => n.toString().padStart(2, '0')
+      const localDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+      const localTimestamp = `${localDate}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+
       const { data, error } = await supabase
         .from('log_comments')
-        .insert({ log_id: logId, author_id: auth.user.id, content })
+        .insert({ log_id: logId, author_id: auth.user.id, content, created_at: localTimestamp })
         .select('*, users(*)')
         .single()
         
@@ -1071,7 +1097,7 @@ export const useGroupStore = defineStore('groups', {
           type: 'MEMBER_JOINED',
           title: 'New Member',
           message: `👥 ${auth.user.displayName || 'Someone'} joined the group!`,
-          route: `/app/groups/${invite.group_id}?tab=members`
+          route: `/groups/${invite.group_id}?tab=members`
         }))
         if (notifInserts.length > 0) {
           await supabase.from('notifications').insert(notifInserts)

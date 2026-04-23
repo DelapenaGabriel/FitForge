@@ -1,0 +1,16 @@
+[[redirects]]
+  from = "/api/fatsecret/token"
+  to = "https://oauth.fatsecret.com/connect/token"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/fatsecret/rest"
+  to = "https://platform.fatsecret.com/rest/server.api"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

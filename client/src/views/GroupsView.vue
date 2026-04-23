@@ -345,7 +345,9 @@ onMounted(() => {
   color: inherit;
   border: 1px solid rgba(255, 255, 255, 0.04);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  display: block;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .gv-card:active { transform: scale(0.98); }
@@ -375,6 +377,9 @@ onMounted(() => {
   position: relative;
   z-index: 1;
   padding: 24px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .gv-card-top {
@@ -461,6 +466,7 @@ onMounted(() => {
 .gv-card-meta {
   display: flex;
   gap: 20px;
+  margin-top: auto;
 }
 
 .gv-meta-item {

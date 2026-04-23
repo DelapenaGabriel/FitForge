@@ -13,7 +13,20 @@ const auth = useAuthStore();
 const groups = useGroupStore();
 
 const groupId = computed(() => Number(route.params.id));
-const activeTab = ref("feed");
+const getMappedTab = (tab) => {
+  if (tab === 'logs') return 'progress';
+  if (tab === 'members') return 'settings';
+  return tab || 'feed';
+};
+
+const activeTab = ref(getMappedTab(route.query.tab));
+
+watch(() => route.query.tab, (newTab) => {
+  if (newTab) {
+    activeTab.value = getMappedTab(newTab);
+  }
+});
+
 const leaderboardViewMode = ref("calendar");
 const loading = ref(true);
 
@@ -315,6 +328,18 @@ const isCoach = computed(() => groups.currentGroup?.myRole === "COACH");
 
 const handleLog = async () => {
   if (!logWeight.value && !logNotes.value && uploadedPhotos.value.length === 0) return;
+
+  if (logWeight.value) {
+    const today = new Date();
+    const pad = (n) => n.toString().padStart(2, '0');
+    const localDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+
+    const existingLogToday = groups.logs.find(l => l.logDate === localDate && l.weightLbs != null);
+    if (existingLogToday) {
+      alert("You have already logged a weight for today. Please edit your existing log or wait until tomorrow to log a new weight.");
+      return;
+    }
+  }
 
   isSubmittingLog.value = true;
   try {

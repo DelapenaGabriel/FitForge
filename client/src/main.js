@@ -9,11 +9,11 @@ app.use(createPinia())
 app.use(router)
 app.mount('#app')
 
-// Unregister any lingering service workers from other projects on localhost
-if (import.meta.env.DEV && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    for (const registration of registrations) {
-      registration.unregister()
+// Listen for navigation messages from the service worker (push notification clicks)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type === 'NAVIGATE' && event.data.route) {
+      router.push(event.data.route)
     }
   })
 }

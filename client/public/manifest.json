@@ -4,6 +4,7 @@
   "description": "FitForge is a fitness app that helps you get fit with your friends and family.",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#111111",
   "theme_color": "#111111",
   "icons": [

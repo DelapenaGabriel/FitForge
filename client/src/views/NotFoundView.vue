@@ -2,9 +2,7 @@
   <div class="fk-404-page">
     <div class="fk-404-glow"></div>
     <div class="fk-404-container">
-      <div class="fk-404-bolt">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="currentColor"/></svg>
-      </div>
+      
       <h1 class="fk-404-code">404</h1>
       <h2 class="fk-404-heading">LOST IN<br/>THE VOID</h2>
       <p class="fk-404-text">

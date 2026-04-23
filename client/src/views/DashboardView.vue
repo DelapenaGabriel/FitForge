@@ -3,11 +3,13 @@ import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupStore } from '@/stores/groups'
 import { useNotificationStore } from '@/stores/notifications'
+import { useNutritionStore } from '@/stores/nutrition'
 import quotes from '@/stores/quotes'
 
 const auth = useAuthStore()
 const groups = useGroupStore()
 const notifs = useNotificationStore()
+const nutrition = useNutritionStore()
 
 const showPushBanner = ref(false)
 const pushBannerDismissed = ref(false)
@@ -20,7 +22,9 @@ const dailyQuote = computed(() => {
 onMounted(async () => {
   await Promise.all([
     groups.fetchGroups(),
-    groups.fetchDashboardStats()
+    groups.fetchDashboardStats(),
+    nutrition.fetchSettings(),
+    nutrition.fetchLogs(new Date())
   ])
   
   if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
@@ -72,6 +76,28 @@ const getWeeksRemaining = (endDate) => {
   const days = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)))
   return Math.ceil(days / 7)
 }
+
+const hoveredLog = ref(null)
+
+const chartPoints = computed(() => {
+  const trend = groups.dashboardStats?.weightTrend
+  if (!trend || trend.length < 2) return []
+
+  const min = Math.min(...trend.map(a => a.weight_lbs))
+  const max = Math.max(...trend.map(a => a.weight_lbs))
+  const range = max - min || 1
+
+  return trend.map((log, i) => {
+    const x = (i / (trend.length - 1)) * 100
+    // Keep 10% padding on top and bottom (y from 10 to 90)
+    const y = 100 - (((log.weight_lbs - min) / range) * 80 + 10)
+    return {
+      ...log,
+      x,
+      y
+    }
+  })
+})
 </script>
 
 <template>
@@ -109,10 +135,22 @@ const getWeeksRemaining = (endDate) => {
               {{ auth.user?.displayName?.split(' ')[0]?.toUpperCase() || 'ATHLETE' }}
             </h1>
           </div>
-          <div class="athl-hero-avatar">
-            <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="Avatar" />
-            <span v-else class="athl-avatar-initials">{{ getInitials(auth.user?.displayName) }}</span>
-            <div class="athl-avatar-status"></div>
+          <div class="athl-hero-actions">
+            <!-- Notification Bell -->
+            <button class="athl-bell-btn" @click="notifs.togglePanel()" aria-label="Notifications">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              </svg>
+              <div v-if="notifs.unreadCount > 0" class="athl-bell-badge">{{ notifs.unreadCount }}</div>
+            </button>
+            <router-link to="/profile">
+              <div class="athl-hero-avatar">
+                <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="Avatar" />
+                <span v-else class="athl-avatar-initials">{{ getInitials(auth.user?.displayName) }}</span>
+                <div class="athl-avatar-status"></div>
+              </div>
+            </router-link>
           </div>
         </div>
       </header>
@@ -168,39 +206,78 @@ const getWeeksRemaining = (endDate) => {
           </div>
         </section>
 
+        <!-- Today's Fuel (Nutrition) -->
+        <section class="dash-section animate-in" style="animation-delay: 0.18s">
+          <div class="dash-header">
+            <h2 class="dash-title">TODAY'S FUEL</h2>
+            <router-link to="/nutrition" class="dash-view-all">LOG FOOD <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></router-link>
+          </div>
+          
+          <div class="dash-nutrition-card">
+            <div class="macro-overview">
+               <div class="macro-circle">
+                 <span class="macro-val">{{ nutrition.dailyTotals.calories }}</span>
+                 <span class="macro-lbl">KCAL</span>
+               </div>
+               <div class="macro-bars">
+                 <div class="macro-bar-row">
+                    <div class="macro-label">PROTEIN <span class="macro-num">{{ nutrition.dailyTotals.protein }}g / {{ nutrition.settings.protein_g }}g</span></div>
+                    <div class="progress-bar-bg"><div class="progress-bar-fill protein-fill" :style="{ width: nutrition.macroProgress.protein + '%' }"></div></div>
+                 </div>
+                 <div class="macro-bar-row">
+                    <div class="macro-label">CARBS <span class="macro-num">{{ nutrition.dailyTotals.carbs }}g / {{ nutrition.settings.carbs_g }}g</span></div>
+                    <div class="progress-bar-bg"><div class="progress-bar-fill carbs-fill" :style="{ width: nutrition.macroProgress.carbs + '%' }"></div></div>
+                 </div>
+                 <div class="macro-bar-row">
+                    <div class="macro-label">FAT <span class="macro-num">{{ nutrition.dailyTotals.fat }}g / {{ nutrition.settings.fat_g }}g</span></div>
+                    <div class="progress-bar-bg"><div class="progress-bar-fill fat-fill" :style="{ width: nutrition.macroProgress.fat + '%' }"></div></div>
+                 </div>
+               </div>
+            </div>
+          </div>
+        </section>
+
         <!-- Weight Trend Sparkline -->
-        <section v-if="groups.dashboardStats.weightTrend && groups.dashboardStats.weightTrend.length > 1" class="dash-section animate-in" style="animation-delay: 0.2s">
+        <section v-if="chartPoints.length > 1" class="dash-section animate-in" style="animation-delay: 0.2s">
           <div class="dash-header">
             <h2 class="dash-title">WEIGHT TREND</h2>
-            <span class="dash-subtitle">LAST {{ groups.dashboardStats.weightTrend.length }} LOGS</span>
+            <span class="dash-subtitle">LAST {{ chartPoints.length }} LOGS</span>
           </div>
           <div class="dash-chart-card">
-            <div class="sparkline-container">
-               <svg class="sparkline" viewBox="0 0 100 30" preserveAspectRatio="none">
-                  <!-- Generate polyline points dynamically. X=0 to 100, Y=30 to 0 (inverted) -->
+            <div class="sparkline-container" @mouseleave="hoveredLog = null">
+               <!-- The Line -->
+               <svg class="sparkline" viewBox="0 0 100 100" preserveAspectRatio="none">
                   <polyline
                     fill="none"
                     stroke="#DFFF00"
                     stroke-width="2"
-                    :points="groups.dashboardStats.weightTrend.map((log, i, arr) => {
-                       const x = (i / (arr.length - 1)) * 100;
-                       const min = Math.min(...arr.map(a => a.weight_lbs));
-                       const max = Math.max(...arr.map(a => a.weight_lbs));
-                       const range = max - min || 1;
-                       const y = 30 - (((log.weight_lbs - min) / range) * 20 + 5);
-                       return `${x},${y}`;
-                    }).join(' ')"
+                    vector-effect="non-scaling-stroke"
+                    :points="chartPoints.map(p => `${p.x},${p.y}`).join(' ')"
                   />
-                  <!-- Dots -->
-                  <circle v-for="(log, i) in groups.dashboardStats.weightTrend" :key="log.log_date"
-                    :cx="(i / (groups.dashboardStats.weightTrend.length - 1)) * 100"
-                    :cy="30 - (((log.weight_lbs - Math.min(...groups.dashboardStats.weightTrend.map(a=>a.weight_lbs))) / (Math.max(...groups.dashboardStats.weightTrend.map(a=>a.weight_lbs)) - Math.min(...groups.dashboardStats.weightTrend.map(a=>a.weight_lbs)) || 1)) * 20 + 5)"
-                    r="1.5" fill="#0e0e0e" stroke="#DFFF00" stroke-width="0.5" />
                </svg>
+               
+               <!-- The Dots & Touch Targets -->
+               <div v-for="p in chartPoints" :key="p.log_date" 
+                    class="chart-dot-wrapper"
+                    :style="{ left: `${p.x}%`, top: `${p.y}%` }"
+                    @mouseover="hoveredLog = p"
+                    @touchstart.passive="hoveredLog = p">
+                 <div class="chart-dot" :class="{ 'is-active': hoveredLog === p }"></div>
+               </div>
+               
+               <!-- Tooltip -->
+               <transition name="tooltip-fade">
+                 <div v-if="hoveredLog" class="chart-tooltip" :style="{ left: `${hoveredLog.x}%`, top: `${hoveredLog.y}%` }">
+                   <div class="tooltip-content">
+                     <div class="tooltip-val">{{ hoveredLog.weight_lbs }} <small>lbs</small></div>
+                     <div class="tooltip-date">{{ formatDate(hoveredLog.log_date) }}</div>
+                   </div>
+                 </div>
+               </transition>
             </div>
             <div class="chart-labels">
-               <span>{{ formatDate(groups.dashboardStats.weightTrend[0]?.log_date) }}</span>
-               <span>{{ formatDate(groups.dashboardStats.weightTrend[groups.dashboardStats.weightTrend.length-1]?.log_date) }}</span>
+               <span>{{ formatDate(chartPoints[0].log_date) }}</span>
+               <span>{{ formatDate(chartPoints[chartPoints.length-1].log_date) }}</span>
             </div>
           </div>
         </section>
@@ -368,6 +445,54 @@ const getWeeksRemaining = (endDate) => {
 .athl-hero-info { display: flex; flex-direction: column; gap: 4px; }
 .athl-hero-label { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: #DFFF00; }
 .athl-hero-name { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 2.8rem; line-height: 1; letter-spacing: -0.04em; color: #ffffff; text-transform: uppercase; font-style: italic; }
+.athl-hero-actions { display: flex; align-items: center; gap: 14px; }
+.athl-bell-btn {
+  position: relative;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+.athl-bell-btn:active {
+  transform: scale(0.92);
+  background: rgba(255, 255, 255, 0.1);
+}
+.athl-bell-btn svg { transition: transform 0.3s ease; }
+.athl-bell-btn:hover svg { transform: rotate(10deg); }
+.athl-bell-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: #DFFF00;
+  color: #0e0e0e;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 0.65rem;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #0e0e0e;
+  box-shadow: 0 0 10px rgba(223, 255, 0, 0.4);
+  animation: athl-badge-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes athl-badge-pop {
+  0% { transform: scale(0); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
 .athl-hero-avatar { position: relative; width: 52px; height: 52px; flex-shrink: 0; }
 .athl-hero-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; border: 2px solid rgba(223, 255, 0, 0.25); }
 .athl-avatar-initials { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: linear-gradient(135deg, #262626, #1a1919); color: #DFFF00; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1rem; border-radius: 50%; border: 2px solid rgba(223, 255, 0, 0.25); }
@@ -411,8 +536,97 @@ const getWeeksRemaining = (endDate) => {
 
 /* Chart */
 .dash-chart-card { background: #1a1919; border: 1px solid rgba(255,255,255,0.04); border-radius: 16px; padding: 24px; }
-.sparkline-container { width: 100%; height: 60px; }
-.sparkline { width: 100%; height: 100%; overflow: visible; }
+.sparkline-container { width: 100%; height: 120px; position: relative; margin-bottom: 12px; margin-top: 10px; }
+.sparkline { width: 100%; height: 100%; overflow: visible; position: absolute; top: 0; left: 0; }
+
+/* Chart Dots */
+.chart-dot-wrapper {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 5;
+  -webkit-tap-highlight-color: transparent;
+}
+.chart-dot {
+  width: 6px;
+  height: 6px;
+  background: #1a1919;
+  border: 1.5px solid #DFFF00;
+  border-radius: 50%;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.chart-dot.is-active {
+  width: 12px;
+  height: 12px;
+  background: #DFFF00;
+  box-shadow: 0 0 12px rgba(223, 255, 0, 0.5);
+}
+
+/* Tooltip */
+.chart-tooltip {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  margin-top: -14px;
+  z-index: 10;
+  pointer-events: none;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5));
+}
+.tooltip-content {
+  background: #2a2a2a;
+  border: 1px solid rgba(255,255,255,0.1);
+  padding: 8px 12px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.tooltip-content::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: #2a2a2a;
+  border-right: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.tooltip-val {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  color: #fff;
+  font-size: 0.9rem;
+}
+.tooltip-val small {
+  color: #adaaaa;
+  font-size: 0.65rem;
+  font-weight: 500;
+}
+.tooltip-date {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.65rem;
+  color: #DFFF00;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.tooltip-fade-enter-active, .tooltip-fade-leave-active {
+  transition: opacity 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.tooltip-fade-enter-from, .tooltip-fade-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -90%);
+}
+
 .chart-labels { display: flex; justify-content: space-between; margin-top: 10px; font-size: 0.65rem; color: #777575; font-family: 'Space Grotesk', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
 
 /* Groups Scroll */
@@ -429,7 +643,33 @@ const getWeeksRemaining = (endDate) => {
 .mini-group-name { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.1rem; color: #fff; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini-group-progress { width: 100%; }
 .progress-bar-bg { height: 4px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
-.progress-bar-fill { height: 100%; background: #DFFF00; border-radius: 4px; }
+.progress-bar-fill { height: 100%; background: #DFFF00; border-radius: 4px; transition: width 0.4s ease; }
+
+/* Nutrition Dash Card */
+.dash-nutrition-card {
+  background: #1a1919; border: 1px solid rgba(255,255,255,0.04); border-radius: 16px; padding: 20px;
+}
+.macro-overview {
+  display: flex; align-items: center; gap: 24px;
+}
+.macro-circle {
+  width: 90px; height: 90px; border-radius: 50%; border: 4px solid #DFFF00; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 0 15px rgba(223,255,0,0.1);
+}
+.macro-val { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.4rem; color: #fff; line-height: 1; }
+.macro-lbl { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 0.6rem; color: #adaaaa; letter-spacing: 0.1em; margin-top: 2px; }
+.macro-bars { flex-grow: 1; display: flex; flex-direction: column; gap: 12px; }
+.macro-bar-row { display: flex; flex-direction: column; gap: 6px; }
+.macro-label { display: flex; justify-content: space-between; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.65rem; color: #fff; letter-spacing: 0.05em; }
+.macro-num { color: #adaaaa; font-weight: 600; }
+.protein-fill { background: #b399ff; }
+.carbs-fill { background: #DFFF00; }
+.fat-fill { background: #ff7043; }
+@media (max-width: 400px) {
+  .macro-overview { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .macro-circle { width: 100%; height: auto; border: none; border-radius: 0; border-left: 4px solid #DFFF00; padding: 0 0 0 12px; align-items: flex-start; box-shadow: none; }
+  .macro-val { font-size: 2rem; }
+  .macro-bars { width: 100%; }
+}
 
 /* Lists (Targets & Activity) */
 .dash-list { display: flex; flex-direction: column; gap: 8px; }
