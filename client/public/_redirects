@@ -1,1 +1,3 @@
-/* /index.html 200
+/api/fatsecret/token*  https://oauth.fatsecret.com/connect/token:splat  200!
+/api/fatsecret/rest*   https://platform.fatsecret.com/rest/server.api:splat  200!
+/*  /index.html  200

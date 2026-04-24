@@ -5,13 +5,13 @@ import { useNutritionStore } from '@/stores/nutrition'
 const props = defineProps({
   food: { type: Object, required: true },
   hour: { type: Number, default: () => new Date().getHours() },
-  date: { type: Date, default: () => new Date() }
+  date: { type: Date, default: () => new Date() },
+  exactTime: { type: Boolean, default: false },
+  editLog: { type: Object, default: null }
 })
 const emit = defineEmits(['close', 'added'])
 const nutrition = useNutritionStore()
 
-const unit = ref('grams')
-const quantity = ref(100)
 const showSuccess = ref(false)
 const nutrientMode = ref('g') // 'g' or '%'
 
@@ -20,49 +20,211 @@ const touchStartY = ref(0)
 const touchCurrentY = ref(0)
 const isDragging = ref(false)
 
-// Parse grams from serving_size string
+// Parse grams from serving_size string if needed
 function parseGrams(str) {
-  if (!str) return null
+  if (!str) return 0
   const match = str.match(/([\d.]+)\s*g/i)
-  return match ? parseFloat(match[1]) : null
+  return match ? parseFloat(match[1]) : 0
 }
 
-const baseServingGrams = computed(() => {
-  return props.food.serving_weight_g || parseGrams(props.food.serving_size) || 100
+const unitOptions = computed(() => {
+  const options = []
+  let canShowStandardUnits = false
+  
+  if (props.food.servings && props.food.servings.length) {
+    props.food.servings.forEach((s, idx) => {
+      const desc = (s.serving_description || '').toLowerCase()
+      const isWeightNative = desc.includes('g') || desc.includes('oz') || desc.includes('gram') || desc.includes('ounce') || desc.includes('lb') || desc.includes('pound')
+
+      options.push({
+        id: `serving_${idx}`,
+        type: 'serving',
+        label: s.serving_description || `${s.number_of_units} ${s.measurement_description}`,
+        data: s
+      })
+
+      // We can show standard units if the API natively provides a weight-based serving
+      if (isWeightNative && parseFloat(s.metric_serving_amount) > 0) {
+        canShowStandardUnits = true
+      }
+      
+      // Or if there are multiple servings and we have weight data to bridge them
+      if (props.food.servings.length > 1 && parseFloat(s.metric_serving_amount) > 0) {
+        canShowStandardUnits = true
+      }
+    })
+  } else {
+    const s_size = props.food.serving_size || '1 serving'
+    const weightG = props.food.serving_weight_g || parseGrams(s_size)
+    const lsize = s_size.toLowerCase()
+    const isWeightNative = lsize.includes('g') || lsize.includes('oz') || lsize.includes('lb') || lsize.includes('ml')
+
+    if (isWeightNative && weightG > 0) {
+      canShowStandardUnits = true
+    }
+
+    options.push({
+      id: 'serving_default',
+      type: 'serving_default',
+      label: s_size,
+      data: {
+        number_of_units: 1,
+        calories: props.food.calories || 0,
+        protein: props.food.protein_g || 0,
+        fat: props.food.fat_g || 0,
+        carbohydrate: props.food.carbs_g || 0,
+        fiber: props.food.fiber_g || 0,
+        sugar: props.food.sugars_g || 0,
+        sodium: props.food.sodium_mg || 0,
+        cholesterol: props.food.cholesterol_mg || 0,
+        metric_serving_amount: weightG || 0
+      }
+    })
+  }
+
+  if (canShowStandardUnits) {
+    options.push({ id: 'grams', type: 'grams', label: 'Grams (g)' })
+    options.push({ id: 'oz', type: 'oz', label: 'Ounces (oz)' })
+  }
+
+  return options
 })
+
+const selectedUnitId = ref(unitOptions.value[0]?.id || 'serving_default')
+const quantity = ref(1)
 
 onMounted(() => {
-  quantity.value = baseServingGrams.value
-})
-
-// Convert when switching units
-watch(unit, (newU, oldU) => {
-  if (oldU === 'grams' && newU === 'oz') {
-    quantity.value = Math.round(quantity.value / 28.3495 * 10) / 10
-  } else if (oldU === 'oz' && newU === 'grams') {
-    quantity.value = Math.round(quantity.value * 28.3495)
+  if (props.editLog) {
+    quantity.value = props.editLog.serving_qty || 1
+    const logDesc = (props.editLog.serving_size || '').replace(/^[\d.]+\s*/, '').trim()
+    const matchedOpt = unitOptions.value.find(o => {
+      if (o.id === 'grams' && (logDesc.toLowerCase() === 'g' || logDesc.toLowerCase() === 'grams')) return true
+      if (o.id === 'oz' && (logDesc.toLowerCase() === 'oz' || logDesc.toLowerCase() === 'ounces')) return true
+      const oLabel = o.label.replace(/^[\d.]+\s*/, '').trim()
+      return o.label === props.editLog.serving_size || oLabel === logDesc
+    })
+    if (matchedOpt) {
+      selectedUnitId.value = matchedOpt.id
+    }
+  } else {
+    const opt = unitOptions.value.find(o => o.id === selectedUnitId.value)
+    if (opt && opt.type === 'serving' && opt.data) {
+      quantity.value = parseFloat(opt.data.number_of_units) || 1
+    } else if (opt && opt.type === 'serving_default') {
+      quantity.value = 1
+    } else if (opt && opt.id === 'grams') {
+      quantity.value = 100
+    } else if (opt && opt.id === 'oz') {
+      quantity.value = Math.round((100 / 28.3495) * 10) / 10
+    }
   }
 })
 
-const quantityGrams = computed(() => {
-  return unit.value === 'oz' ? quantity.value * 28.3495 : quantity.value
+// When switching units, intelligently convert if possible
+watch(selectedUnitId, (newId, oldId) => {
+  const oldOpt = unitOptions.value.find(o => o.id === oldId)
+  const newOpt = unitOptions.value.find(o => o.id === newId)
+  
+  if (!oldOpt || !newOpt) return
+
+  // Find equivalent in grams
+  let currentGrams = 0
+  if (oldOpt.id === 'grams') currentGrams = quantity.value
+  else if (oldOpt.id === 'oz') currentGrams = quantity.value * 28.3495
+  else if (oldOpt.data && oldOpt.data.metric_serving_amount) {
+    currentGrams = (quantity.value / (parseFloat(oldOpt.data.number_of_units)||1)) * parseFloat(oldOpt.data.metric_serving_amount)
+  }
+
+  // Convert to new unit
+  if (newOpt.id === 'grams') {
+    quantity.value = currentGrams > 0 ? Math.round(currentGrams) : 100
+  } else if (newOpt.id === 'oz') {
+    quantity.value = currentGrams > 0 ? Math.round((currentGrams / 28.3495) * 100) / 100 : 3.5
+  } else if (newOpt.data) {
+    if (currentGrams > 0 && parseFloat(newOpt.data.metric_serving_amount) > 0) {
+      const units = currentGrams / parseFloat(newOpt.data.metric_serving_amount)
+      quantity.value = Math.round(units * (parseFloat(newOpt.data.number_of_units)||1) * 100) / 100
+    } else {
+      quantity.value = parseFloat(newOpt.data.number_of_units) || 1
+    }
+  }
 })
 
-const scale = computed(() => {
-  if (baseServingGrams.value <= 0) return 1
-  return quantityGrams.value / baseServingGrams.value
+const macrosPerGram = computed(() => {
+  // Find the best serving to calculate per-gram from
+  let bestServing = null
+  if (props.food.servings && props.food.servings.length) {
+    bestServing = props.food.servings.find(s => parseFloat(s.metric_serving_amount) > 0) || props.food.servings[0]
+  }
+  
+  if (bestServing && parseFloat(bestServing.metric_serving_amount) > 0) {
+    const weight = parseFloat(bestServing.metric_serving_amount)
+    return {
+      cal: parseFloat(bestServing.calories || 0) / weight,
+      p: parseFloat(bestServing.protein || 0) / weight,
+      f: parseFloat(bestServing.fat || 0) / weight,
+      c: parseFloat(bestServing.carbohydrate || 0) / weight,
+      fib: parseFloat(bestServing.fiber || 0) / weight,
+      sug: parseFloat(bestServing.sugar || 0) / weight,
+      sod: parseFloat(bestServing.sodium || 0) / weight,
+      chol: parseFloat(bestServing.cholesterol || 0) / weight
+    }
+  } else {
+    // Fallback
+    const weight = props.food.serving_weight_g || 100
+    return {
+      cal: (props.food.calories || 0) / weight,
+      p: (props.food.protein_g || 0) / weight,
+      f: (props.food.fat_g || 0) / weight,
+      c: (props.food.carbs_g || 0) / weight,
+      fib: (props.food.fiber_g || 0) / weight,
+      sug: (props.food.sugars_g || 0) / weight,
+      sod: (props.food.sodium_mg || 0) / weight,
+      chol: (props.food.cholesterol_mg || 0) / weight
+    }
+  }
 })
 
-const scaled = computed(() => ({
-  calories: Math.round((props.food.calories || 0) * scale.value),
-  protein_g: Math.round((props.food.protein_g || 0) * scale.value * 10) / 10,
-  fat_g: Math.round((props.food.fat_g || 0) * scale.value * 10) / 10,
-  carbs_g: Math.round((props.food.carbs_g || 0) * scale.value * 10) / 10,
-  fiber_g: Math.round((props.food.fiber_g || 0) * scale.value * 10) / 10,
-  sugars_g: Math.round((props.food.sugars_g || 0) * scale.value * 10) / 10,
-  sodium_mg: Math.round((props.food.sodium_mg || 0) * scale.value),
-  cholesterol_mg: Math.round((props.food.cholesterol_mg || 0) * scale.value),
-}))
+const scaled = computed(() => {
+  const opt = unitOptions.value.find(o => o.id === selectedUnitId.value)
+  if (!opt) return {}
+
+  let sCal=0, sP=0, sF=0, sC=0, sFib=0, sSug=0, sSod=0, sChol=0
+
+  if (opt.id === 'grams' || opt.id === 'oz') {
+    const grams = opt.id === 'oz' ? quantity.value * 28.3495 : quantity.value
+    const m = macrosPerGram.value
+    sCal = m.cal * grams
+    sP = m.p * grams
+    sF = m.f * grams
+    sC = m.c * grams
+    sFib = m.fib * grams
+    sSug = m.sug * grams
+    sSod = m.sod * grams
+    sChol = m.chol * grams
+  } else if (opt.data) {
+    const scale = quantity.value / (parseFloat(opt.data.number_of_units) || 1)
+    sCal = parseFloat(opt.data.calories || 0) * scale
+    sP = parseFloat(opt.data.protein || opt.data.protein_g || 0) * scale
+    sF = parseFloat(opt.data.fat || opt.data.fat_g || 0) * scale
+    sC = parseFloat(opt.data.carbohydrate || opt.data.carbs_g || 0) * scale
+    sFib = parseFloat(opt.data.fiber || opt.data.fiber_g || 0) * scale
+    sSug = parseFloat(opt.data.sugar || opt.data.sugars_g || 0) * scale
+    sSod = parseFloat(opt.data.sodium || opt.data.sodium_mg || 0) * scale
+    sChol = parseFloat(opt.data.cholesterol || opt.data.cholesterol_mg || 0) * scale
+  }
+
+  return {
+    calories: Math.round(sCal),
+    protein_g: Math.round(sP * 10) / 10,
+    fat_g: Math.round(sF * 10) / 10,
+    carbs_g: Math.round(sC * 10) / 10,
+    fiber_g: Math.round(sFib * 10) / 10,
+    sugars_g: Math.round(sSug * 10) / 10,
+    sodium_mg: Math.round(sSod),
+    cholesterol_mg: Math.round(sChol)
+  }
+})
 
 // Percentage of daily goals
 const pct = computed(() => {
@@ -81,26 +243,56 @@ function ringDash(pctVal) {
 }
 
 async function handleAdd() {
-  const d = new Date(props.date)
-  const logTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), props.hour, 0, 0)
-  const foodPayload = {
-    food_name: props.food.food_name,
-    brand: props.food.brand || null,
-    calories: scaled.value.calories,
-    protein_g: scaled.value.protein_g,
-    fat_g: scaled.value.fat_g,
-    carbs_g: scaled.value.carbs_g,
-    serving_size: `${quantity.value}${unit.value === 'oz' ? 'oz' : 'g'}`,
-    serving_qty: quantity.value,
-    source: props.food.source || 'manual',
-    source_id: props.food.source_id || null
+  try {
+    const opt = unitOptions.value.find(o => o.id === selectedUnitId.value)
+    let servingSizeStr = `${quantity.value} ${opt ? opt.label : ''}`
+    
+    let weightGrams = null
+    if (opt?.id === 'grams') weightGrams = quantity.value
+    else if (opt?.id === 'oz') weightGrams = quantity.value * 28.3495
+    else if (opt?.data && opt.data.metric_serving_amount) {
+      weightGrams = (quantity.value / (parseFloat(opt.data.number_of_units)||1)) * parseFloat(opt.data.metric_serving_amount)
+    }
+
+    const foodPayload = {
+      food_name: props.food.food_name || 'Unknown',
+      brand: props.food.brand || null,
+      calories: scaled.value.calories || 0,
+      protein_g: scaled.value.protein_g || 0,
+      fat_g: scaled.value.fat_g || 0,
+      carbs_g: scaled.value.carbs_g || 0,
+      fiber_g: scaled.value.fiber_g || 0,
+      sugars_g: scaled.value.sugars_g || 0,
+      serving_size: servingSizeStr.trim(),
+      serving_weight_g: weightGrams ? Math.round(weightGrams) : null,
+      serving_qty: quantity.value || 1,
+      source: props.food.source || 'manual',
+      source_id: props.food.source_id || null
+    }
+
+    if (props.editLog) {
+      await nutrition.updateFoodLogDetails(props.editLog.id, foodPayload)
+    } else {
+      const d = new Date(props.date)
+      let logTime
+      if (props.exactTime) {
+        const now = new Date()
+        logTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), now.getHours(), now.getMinutes(), now.getSeconds())
+      } else {
+        logTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), props.hour, 0, 0)
+      }
+      await nutrition.addFoodLog(foodPayload, logTime)
+    }
+
+    showSuccess.value = true
+    setTimeout(() => { emit('added') }, 600)
+  } catch (err) {
+    console.error('Failed to add/update food:', err)
+    alert('Failed to save. Please try again.')
   }
-  await nutrition.addFoodLog(foodPayload, logTime)
-  showSuccess.value = true
-  setTimeout(() => { emit('added') }, 600)
 }
 
-// Drag logic (matching CustomFoodModal style)
+// Drag logic
 const handleTouchStart = (e) => {
   touchStartY.value = e.touches[0].clientY
   touchCurrentY.value = e.touches[0].clientY
@@ -138,16 +330,16 @@ const modalStyle = computed(() => {
 // Nutrient rows
 const nutrientRows = computed(() => {
   const rows = []
-  if (props.food.fiber_g !== undefined || props.food.fiber_100g !== undefined) {
+  if (scaled.value.fiber_g > 0 || props.food.fiber_g !== undefined) {
     rows.push({ label: 'Fiber', value: scaled.value.fiber_g, unit: 'g', dv: 28 })
   }
-  if (props.food.sugars_g !== undefined || props.food.sugars_100g !== undefined) {
+  if (scaled.value.sugars_g > 0 || props.food.sugars_g !== undefined) {
     rows.push({ label: 'Sugars', value: scaled.value.sugars_g, unit: 'g', dv: 50 })
   }
-  if ((props.food.cholesterol_mg || 0) > 0 || (props.food.cholesterol_100g || 0) > 0) {
+  if (scaled.value.cholesterol_mg > 0 || (props.food.cholesterol_mg || 0) > 0) {
     rows.push({ label: 'Cholesterol', value: scaled.value.cholesterol_mg, unit: 'mg', dv: 300 })
   }
-  if (props.food.sodium_mg !== undefined || props.food.sodium_100g !== undefined) {
+  if (scaled.value.sodium_mg > 0 || props.food.sodium_mg !== undefined) {
     rows.push({ label: 'Sodium', value: scaled.value.sodium_mg, unit: 'mg', dv: 2300 })
   }
   return rows
@@ -178,10 +370,9 @@ const nutrientRows = computed(() => {
             </div>
           </div>
 
-          <!-- Success overlay -->
           <div v-if="showSuccess" class="fdm-success-overlay">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#DFFF00" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>
-            <span>Added!</span>
+            <span>{{ editLog ? 'Updated!' : 'Added!' }}</span>
           </div>
 
           <div class="fdm-scroll" v-show="!showSuccess">
@@ -264,11 +455,14 @@ const nutrientRows = computed(() => {
             <!-- Serving Info -->
             <div class="fdm-section fdm-serving-section">
               <div class="fdm-serving-info">
-                <span class="fdm-serving-label">Serving: {{ food.serving_size || '100g' }}</span>
+                <span class="fdm-serving-label">Serving Settings</span>
               </div>
-              <div class="fdm-unit-toggle">
-                <button :class="['fdm-unit-btn', unit==='oz' && 'fdm-unit-active']" @click="unit='oz'">Oz</button>
-                <button :class="['fdm-unit-btn', unit==='grams' && 'fdm-unit-active']" @click="unit='grams'">grams</button>
+              <div class="fdm-qty-row fdm-serving-select-row">
+                <select v-model="selectedUnitId" class="fdm-unit-select">
+                  <option v-for="opt in unitOptions" :key="opt.id" :value="opt.id">
+                    {{ opt.label }}
+                  </option>
+                </select>
               </div>
               <div class="fdm-qty-row">
                 <input
@@ -276,11 +470,10 @@ const nutrientRows = computed(() => {
                   type="number"
                   class="fdm-qty-input"
                   min="0"
-                  step="0.1"
+                  step="0.01"
                   inputmode="decimal"
                 />
-                <span class="fdm-qty-unit">{{ unit === 'oz' ? 'Oz' : 'g' }}</span>
-                <button class="fdm-add-btn" @click="handleAdd">Add</button>
+                <button class="fdm-add-btn" @click="handleAdd">{{ editLog ? 'Update' : 'Add' }}</button>
               </div>
             </div>
           </div>
@@ -491,20 +684,28 @@ const nutrientRows = computed(() => {
 }
 .fdm-serving-info { margin-bottom: 12px; }
 .fdm-serving-label {
-  font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem;
-  color: rgba(255,255,255,0.35); font-weight: 600; letter-spacing: 0.05em;
+  font-family: 'Space Grotesk', sans-serif; font-size: 0.7rem;
+  color: rgba(255,255,255,0.35); font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
-.fdm-unit-toggle { display: flex; gap: 6px; margin-bottom: 14px; }
-.fdm-unit-btn {
-  padding: 7px 18px; border-radius: 10px;
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.5); font-family: 'Space Grotesk', sans-serif;
-  font-weight: 700; font-size: 0.8rem; cursor: pointer; transition: all 0.2s;
+.fdm-serving-select-row { margin-bottom: 12px; }
+.fdm-unit-select {
+  width: 100%; height: 44px; border-radius: 12px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  color: #fff; font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700; font-size: 0.85rem; padding: 0 14px;
+  outline: none; cursor: pointer; transition: border-color 0.2s;
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
 }
-.fdm-unit-active {
-  background: rgba(223,255,0,0.08); border-color: rgba(223,255,0,0.25);
-  color: #DFFF00;
+.fdm-unit-select:focus { border-color: rgba(223,255,0,0.4); }
+.fdm-unit-select option {
+  background: #1a1a1a; color: #fff;
+  font-family: 'Space Grotesk', sans-serif;
 }
 
 .fdm-qty-row {
@@ -521,11 +722,6 @@ const nutrientRows = computed(() => {
 .fdm-qty-input::-webkit-inner-spin-button,
 .fdm-qty-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .fdm-qty-input:focus { border-color: rgba(223,255,0,0.4); }
-
-.fdm-qty-unit {
-  font-family: 'Space Grotesk', sans-serif; font-weight: 600;
-  font-size: 0.9rem; color: rgba(255,255,255,0.4); min-width: 24px;
-}
 
 .fdm-add-btn {
   height: 48px; padding: 0 28px; border-radius: 14px;

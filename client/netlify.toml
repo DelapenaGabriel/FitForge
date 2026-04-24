@@ -1,12 +1,12 @@
 [[redirects]]
-  from = "/api/fatsecret/token"
-  to = "https://oauth.fatsecret.com/connect/token"
+  from = "/api/fatsecret/token*"
+  to = "https://oauth.fatsecret.com/connect/token:splat"
   status = 200
   force = true
 
 [[redirects]]
-  from = "/api/fatsecret/rest"
-  to = "https://platform.fatsecret.com/rest/server.api"
+  from = "/api/fatsecret/rest*"
+  to = "https://platform.fatsecret.com/rest/server.api:splat"
   status = 200
   force = true
 

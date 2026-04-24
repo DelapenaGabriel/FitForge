@@ -13,12 +13,14 @@ const nutrition = useNutritionStore()
 const showSettings = ref(false)
 const showFoodSearch = ref(false)
 const selectedHour = ref(null)
+const exactTime = ref(false)
 const showDatePicker = ref(false)
 const menuOpenId = ref(null)
 const showScanner = ref(false)
 const selectedFood = ref(null)
 const scannerLoading = ref(false)
 const scanError = ref(null)
+const editLog = ref(null)
 
 const today = new Date()
 const selectedDate = computed(() => new Date(nutrition.selectedDate))
@@ -49,10 +51,9 @@ function formatDateHeader() {
 }
 
 function formatHour(h) {
-  if (h === 0) return '12 AM'
-  if (h < 12) return h + ' AM'
-  if (h === 12) return '12 PM'
-  return (h - 12) + ' PM'
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const displayHour = h % 12 || 12
+  return `${displayHour}:00 ${ampm}`
 }
 
 function formatLogTime(dt) {
@@ -65,16 +66,19 @@ function formatLogTime(dt) {
 
 function openAddFood(hour) {
   selectedHour.value = hour
+  exactTime.value = false
   showFoodSearch.value = true
 }
 
 function openSearchBar() {
   selectedHour.value = new Date().getHours()
+  exactTime.value = true
   showFoodSearch.value = true
 }
 
 function openBarcodeScanner() {
   selectedHour.value = new Date().getHours()
+  exactTime.value = true
   showScanner.value = true
 }
 
@@ -103,13 +107,62 @@ async function onBarcodeDetected(barcode) {
   }
 }
 
-function onFoodSelected(food) {
-  selectedFood.value = food
+const detailLoading = ref(false)
+const detailError = ref(null)
+
+async function onFoodSelected(food) {
+  // If it's a FatSecret search result with a source_id, fetch full details
+  if (food.source === 'fatsecret' && food.source_id) {
+    detailLoading.value = true
+    detailError.value = null
+    try {
+      const detailed = await nutrition.getFoodDetails(food.source_id)
+      if (detailed) {
+        selectedFood.value = detailed
+      } else {
+        // Fallback to the basic data we already have
+        selectedFood.value = food
+      }
+    } catch (e) {
+      console.error('Failed to fetch food details:', e)
+      selectedFood.value = food
+    } finally {
+      detailLoading.value = false
+    }
+  } else {
+    selectedFood.value = food
+  }
 }
 
 function onFoodAdded() {
   selectedFood.value = null
+  editLog.value = null
   showFoodSearch.value = false
+}
+
+async function openEditFood(log) {
+  editLog.value = log
+  selectedHour.value = new Date(log.logged_at).getHours()
+  exactTime.value = false
+
+  if (log.source === 'fatsecret' && log.source_id) {
+    detailLoading.value = true
+    try {
+      const detailed = await nutrition.getFoodDetails(log.source_id)
+      if (detailed) {
+        selectedFood.value = detailed
+      } else {
+        selectedFood.value = log
+      }
+    } catch (e) {
+      console.error('Failed to fetch food details:', e)
+      selectedFood.value = log
+    } finally {
+      detailLoading.value = false
+    }
+  } else {
+    selectedFood.value = log
+  }
 }
 
 async function handleDeleteLog(id) {
@@ -336,7 +389,7 @@ const hours = Array.from({ length: 24 }, (_, i) => i)
                   <div class="nt-drag-handle" title="Drag to move">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
                   </div>
-                  <div class="nt-food-info">
+                  <div class="nt-food-info" @click="openEditFood(log)" style="cursor: pointer; flex: 1;">
                     <span class="nt-food-name">{{ log.food_name }}</span>
                     <div class="nt-food-macros">
                       <span class="nt-fm nt-fm-cal">{{ log.calories }} kcal</span>
@@ -380,6 +433,7 @@ const hours = Array.from({ length: 24 }, (_, i) => i)
       v-if="showFoodSearch"
       :hour="selectedHour"
       :date="selectedDate"
+      :exact-time="exactTime"
       @close="showFoodSearch = false"
       @select-food="onFoodSelected"
       @open-scanner="handleOpenScannerFromSearch"
@@ -391,7 +445,9 @@ const hours = Array.from({ length: 24 }, (_, i) => i)
       :food="selectedFood"
       :hour="selectedHour"
       :date="selectedDate"
-      @close="selectedFood = null"
+      :exact-time="exactTime"
+      :edit-log="editLog"
+      @close="selectedFood = null; editLog = null"
       @added="onFoodAdded"
     />
 
@@ -399,6 +455,12 @@ const hours = Array.from({ length: 24 }, (_, i) => i)
     <div v-if="scannerLoading" class="nt-scan-loading">
       <div class="nt-scan-spinner"></div>
       <span>Looking up product...</span>
+    </div>
+
+    <!-- Detail loading overlay -->
+    <div v-if="detailLoading" class="nt-scan-loading">
+      <div class="nt-scan-spinner"></div>
+      <span>Loading nutrition details...</span>
     </div>
 
     <!-- Scan error toast -->

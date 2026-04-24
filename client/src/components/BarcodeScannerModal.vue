@@ -23,15 +23,22 @@ async function initScanner() {
     return
   }
 
+  // Check camera permission status without triggering a prompt
+  // Uses the Permissions API first, then falls back to localStorage cache
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-    stream.getTracks().forEach(track => track.stop())
-  } catch (err) {
-    console.error('Camera permission error:', err)
-    errorMsg.value = 'Camera permission denied. Please allow camera access in your browser settings or system settings.'
-    return
+    if (navigator.permissions) {
+      const permStatus = await navigator.permissions.query({ name: 'camera' })
+      if (permStatus.state === 'denied') {
+        errorMsg.value = 'Camera permission denied. Please allow camera access in your browser settings or system settings.'
+        return
+      }
+      // 'granted' or 'prompt' — proceed to Quagga which will handle the single prompt if needed
+    }
+  } catch (e) {
+    // Permissions API not supported for camera in this browser — that's fine, proceed
   }
 
+  // Let Quagga handle the single camera request directly — no redundant getUserMedia pre-check
   try {
     Quagga.init({
       inputStream: {
@@ -51,17 +58,30 @@ async function initScanner() {
     }, (err) => {
       if (err) {
         console.error('Scanner init error:', err)
-        errorMsg.value = 'Unable to access camera. Please check permissions.'
+        // Detect permission-denied errors from Quagga's internal getUserMedia
+        const errStr = String(err.message || err).toLowerCase()
+        if (errStr.includes('permission') || errStr.includes('notallowed') || errStr.includes('not allowed')) {
+          errorMsg.value = 'Camera permission denied. Please allow camera access in your browser settings or system settings.'
+        } else {
+          errorMsg.value = 'Unable to access camera. Please check permissions.'
+        }
         return
       }
       isInitialized.value = true
+      // Remember that camera permission was granted so future opens are seamless
+      try { localStorage.setItem('fitforge_camera_granted', '1') } catch(e) {}
       Quagga.start()
     })
 
     Quagga.onDetected(onDetected)
   } catch (err) {
     console.error('Scanner error:', err)
-    errorMsg.value = 'Camera not available on this device.'
+    const errStr = String(err.message || err).toLowerCase()
+    if (errStr.includes('permission') || errStr.includes('notallowed') || errStr.includes('not allowed')) {
+      errorMsg.value = 'Camera permission denied. Please allow camera access in your browser settings or system settings.'
+    } else {
+      errorMsg.value = 'Camera not available on this device.'
+    }
   }
 }
 

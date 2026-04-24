@@ -269,7 +269,9 @@ export const useGroupStore = defineStore('groups', {
         userId: m.user_id, 
         displayName: m.users?.display_name, 
         avatarUrl: m.users?.avatar_url,
-        email: m.users?.email
+        email: m.users?.email,
+        startWeight: m.start_weight,
+        goalWeight: m.goal_weight
       }))
 
       const auth = useAuthStore()
@@ -296,7 +298,7 @@ export const useGroupStore = defineStore('groups', {
       const { data: group } = await supabase.from('groups').select('*').eq('id', groupId).single()
       const { data: existingTargets } = await supabase.from('weekly_targets').select('*').eq('group_id', groupId).eq('user_id', userId)
       
-      const startWeight = member?.startWeight || member?.start_weight
+      const startWeight = member?.startWeight
       if (group && startWeight) {
          const newTargets = generateWeeklyTargetsPoints(groupId, userId, group.start_date, group.end_date, startWeight, newGoalWeight)
          for (const t of newTargets) {
@@ -316,6 +318,44 @@ export const useGroupStore = defineStore('groups', {
         type: 'success',
         title: '🎯 Goal Updated',
         message: `Goal weight set to ${newGoalWeight} lbs. Targets recalculated.`
+      })
+    },
+
+    async updateStartWeight(groupId, userId, newStartWeight) {
+      const { error } = await supabase
+        .from('group_members')
+        .update({ start_weight: newStartWeight })
+        .eq('group_id', groupId)
+        .eq('user_id', userId)
+        
+      if (error) throw error
+      
+      const member = this.members.find(m => m.userId === userId)
+      if (member) member.startWeight = newStartWeight
+
+      const { data: group } = await supabase.from('groups').select('*').eq('id', groupId).single()
+      const { data: existingTargets } = await supabase.from('weekly_targets').select('*').eq('group_id', groupId).eq('user_id', userId)
+      
+      const goalWeight = member?.goalWeight
+      if (group && goalWeight) {
+         const newTargets = generateWeeklyTargetsPoints(groupId, userId, group.start_date, group.end_date, newStartWeight, goalWeight)
+         for (const t of newTargets) {
+           const existing = existingTargets?.find(ext => ext.week_number === t.week_number)
+           if (existing) {
+             if (!existing.coach_override) {
+               await supabase.from('weekly_targets').update({ target_weight: t.target_weight }).eq('id', existing.id)
+             }
+           } else {
+             await supabase.from('weekly_targets').insert(t)
+           }
+         }
+      }
+
+      const notifs = useNotificationStore()
+      notifs.showToast({
+        type: 'success',
+        title: '⚖️ Start Weight Updated',
+        message: `Starting weight set to ${newStartWeight} lbs. Targets recalculated.`
       })
     },
 

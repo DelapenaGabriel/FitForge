@@ -2,20 +2,55 @@ import { defineStore } from 'pinia'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/auth'
 
-const USDA_API_KEY = import.meta.env.VITE_USDA_API_KEY || 'DEMO_KEY'
-const USDA_BASE = 'https://api.nal.usda.gov/fdc/v1'
-const OPENFOODFACTS_BASE = 'https://world.openfoodfacts.org/api/v2'
-
 const FATSECRET_CLIENT_ID = import.meta.env.VITE_FATSECRET_CLIENT_ID
 const FATSECRET_CLIENT_SECRET = import.meta.env.VITE_FATSECRET_CLIENT_SECRET
 
-let fatSecretToken = null
-let fatSecretTokenExpires = 0
+// OAuth 1.0 Signing Helpers using native Web Crypto API
+const rfc3986 = (str) => encodeURIComponent(str).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
-function parseServingGrams(str) {
-  if (!str) return null
-  const match = str.match(/([\d.]+)\s*g/i)
-  return match ? parseFloat(match[1]) : null
+async function getFatSecretParams(method, params, httpMethod = 'GET') {
+  const baseUrl = 'https://platform.fatsecret.com/rest/server.api';
+  
+  const oauthParams = {
+    oauth_consumer_key: FATSECRET_CLIENT_ID,
+    oauth_signature_method: 'HMAC-SHA1',
+    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+    oauth_nonce: Math.random().toString(36).substring(2),
+    oauth_version: '1.0'
+  };
+
+  const allParams = { ...params, method, format: 'json', ...oauthParams };
+  
+  // Sort parameters alphabetically
+  const sortedKeys = Object.keys(allParams).sort();
+  const baseParts = sortedKeys.map(key => `${rfc3986(key)}=${rfc3986(allParams[key])}`);
+  const parameterString = baseParts.join('&');
+  
+  const baseString = `${httpMethod}&${rfc3986(baseUrl)}&${rfc3986(parameterString)}`;
+  const signingKey = `${rfc3986(FATSECRET_CLIENT_SECRET)}&`;
+
+  // Sign using SubtleCrypto
+  const enc = new TextEncoder();
+  const keyData = enc.encode(signingKey);
+  const baseData = enc.encode(baseString);
+  
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign']
+  );
+  
+  const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, baseData);
+  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+
+  // Return both the raw params and a pre-encoded query string for the fetch call
+  return { 
+    ...allParams, 
+    oauth_signature: signature,
+    queryString: `${parameterString}&oauth_signature=${rfc3986(signature)}`
+  };
 }
 
 export const useNutritionStore = defineStore('nutrition', {
@@ -30,8 +65,6 @@ export const useNutritionStore = defineStore('nutrition', {
     selectedDate: new Date(),
     loading: false,
     searchLoading: false,
-    searchResults: [],
-    offResults: [],
     fatSecretResults: [],
     recentFoods: [],
     customFoods: [],
@@ -256,6 +289,30 @@ export const useNutritionStore = defineStore('nutrition', {
       this.foodLogs = this.foodLogs.filter(l => l.id !== id)
     },
 
+    async updateFoodLogDetails(id, payload) {
+      const auth = useAuthStore()
+      if (!auth.user) return
+
+      const { data, error } = await supabase
+        .from('food_logs')
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error updating food log details:', error)
+        throw error
+      }
+
+      const logIndex = this.foodLogs.findIndex(l => l.id === id)
+      if (logIndex !== -1) {
+        this.foodLogs[logIndex] = { ...this.foodLogs[logIndex], ...data }
+      }
+
+      return data
+    },
+
     async updateFoodLogTime(id, newHour) {
       const auth = useAuthStore()
       if (!auth.user) return
@@ -282,207 +339,93 @@ export const useNutritionStore = defineStore('nutrition', {
       this.foodLogs = [...this.foodLogs].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at))
     },
 
-    async searchUSDA(query) {
-      if (!query || query.length < 2) {
-        this.searchResults = []
-        return
-      }
-
-      this.searchLoading = true
-      try {
-        const res = await fetch(
-          `${USDA_BASE}/foods/search?query=${encodeURIComponent(query)}&pageSize=20&dataType=Branded,SR%20Legacy,Foundation&api_key=${USDA_API_KEY}`
-        )
-        const json = await res.json()
-
-        if (!json.foods) {
-          this.searchResults = []
-          return
-        }
-
-        this.searchResults = json.foods.map(f => {
-          const nutrients = {}
-          ;(f.foodNutrients || []).forEach(n => {
-            // Energy (kcal)
-            if (n.nutrientId === 1008 || n.nutrientName === 'Energy') {
-              nutrients.calories = Math.round(n.value || 0)
-            }
-            // Protein
-            if (n.nutrientId === 1003 || n.nutrientName === 'Protein') {
-              nutrients.protein_g = Math.round(n.value || 0)
-            }
-            // Total Fat
-            if (n.nutrientId === 1004 || n.nutrientName === 'Total lipid (fat)') {
-              nutrients.fat_g = Math.round(n.value || 0)
-            }
-            // Carbs
-            if (n.nutrientId === 1005 || n.nutrientName === 'Carbohydrate, by difference') {
-              nutrients.carbs_g = Math.round(n.value || 0)
-            }
-          })
-
-          return {
-            food_name: f.description || f.lowercaseDescription || 'Unknown',
-            brand: f.brandName || f.brandOwner || null,
-            calories: nutrients.calories || 0,
-            protein_g: nutrients.protein_g || 0,
-            fat_g: nutrients.fat_g || 0,
-            carbs_g: nutrients.carbs_g || 0,
-            serving_size: f.servingSize ? `${f.servingSize}${f.servingSizeUnit || 'g'}` : (f.householdServingFullText || '100g'),
-            source: 'usda',
-            source_id: String(f.fdcId)
-          }
-        })
-      } catch (err) {
-        console.error('USDA search error:', err)
-        this.searchResults = []
-      } finally {
-        this.searchLoading = false
-      }
-    },
-
-    async searchCustomFoods(query) {
-      if (!query || query.length < 2) {
-        this.customFoods = []
-        return
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('custom_foods')
-          .select('*')
-          .ilike('food_name', `%${query}%`)
-          .limit(20)
-
-        if (error) {
-          console.error('Error searching custom foods:', error)
-          return
-        }
-
-        this.customFoods = (data || []).map(f => ({
-          ...f,
-          source: 'custom',
-          source_id: f.id
-        }))
-      } catch (err) {
-        console.error('Custom food search error:', err)
-      }
-    },
+    // Removed USDA and Custom Foods search
 
     async searchBarcode(barcode) {
       this.searchLoading = true
       try {
-        const res = await fetch(
-          `${OPENFOODFACTS_BASE}/product/${barcode}?fields=product_name,brands,nutriments,serving_size,serving_quantity`
-        )
-        const json = await res.json()
+        const params = await getFatSecretParams('food.find_id_for_barcode', {
+          barcode: barcode
+        });
 
-        if (json.status === 'success' && json.product) {
-          const p = json.product
-          const n = p.nutriments || {}
-          const servingG = p.serving_quantity || parseServingGrams(p.serving_size) || 100
-          return {
-            food_name: p.product_name || 'Unknown Product',
-            brand: p.brands || null,
-            calories: Math.round(n['energy-kcal_serving'] || n['energy-kcal_100g'] || 0),
-            protein_g: Math.round(n.proteins_serving || n.proteins_100g || 0),
-            fat_g: Math.round(n.fat_serving || n.fat_100g || 0),
-            carbs_g: Math.round(n.carbohydrates_serving || n.carbohydrates_100g || 0),
-            fiber_g: Math.round((n.fiber_serving || n.fiber_100g || 0) * 10) / 10,
-            sugars_g: Math.round((n.sugars_serving || n.sugars_100g || 0) * 10) / 10,
-            sodium_mg: Math.round((n.sodium_serving || n.sodium_100g || 0) * 1000),
-            cholesterol_mg: Math.round((n['cholesterol_serving'] || n['cholesterol_100g'] || 0) * 1000),
-            serving_size: p.serving_size || '100g',
-            serving_weight_g: servingG,
-            source: 'openfoodfacts',
-            source_id: barcode
-          }
+        const res = await fetch(`/api/fatsecret/rest?${params.queryString}`)
+        const json = await res.json()
+        
+        if (json.error) {
+          console.error('FatSecret Barcode Find Error:', json.error);
+          return null;
         }
-        return null
+
+        if (!json.food_id || json.food_id.value === '0') {
+          return null
+        }
+
+        const foodId = json.food_id.value
+
+        const detailsParams = await getFatSecretParams('food.get.v4', {
+          food_id: foodId
+        })
+
+        const detailsRes = await fetch(`/api/fatsecret/rest?${detailsParams.queryString}`)
+        const detailsJson = await detailsRes.json()
+
+        if (detailsJson.error) {
+          console.error('FatSecret Food Details Error:', detailsJson.error);
+          return null;
+        }
+
+        if (!detailsJson.food) return null
+
+        const f = detailsJson.food
+        const rawServings = f.servings?.serving
+        const servingsArr = Array.isArray(rawServings) ? rawServings : (rawServings ? [rawServings] : [])
+
+        // Parse ALL servings with full nutrition data
+        const allServings = servingsArr.map(s => ({
+          serving_id: s.serving_id,
+          serving_description: s.serving_description || '',
+          metric_serving_amount: parseFloat(s.metric_serving_amount || 0),
+          metric_serving_unit: s.metric_serving_unit || 'g',
+          number_of_units: parseFloat(s.number_of_units || 1),
+          measurement_description: s.measurement_description || '',
+          calories: parseFloat(s.calories || 0),
+          protein: parseFloat(s.protein || 0),
+          fat: parseFloat(s.fat || 0),
+          carbohydrate: parseFloat(s.carbohydrate || 0),
+          fiber: parseFloat(s.fiber || 0),
+          sugar: parseFloat(s.sugar || 0),
+          sodium: parseFloat(s.sodium || 0),
+          cholesterol: parseFloat(s.cholesterol || 0),
+        }))
+
+        const defaultServing = allServings.find(s =>
+          s.measurement_description !== 'g' && s.measurement_description !== 'ml'
+        ) || allServings[0]
+
+        const ds = defaultServing || {}
+
+        return {
+          food_name: f.food_name || 'Unknown Product',
+          brand: f.brand_name || null,
+          calories: Math.round(ds.calories || 0),
+          protein_g: Math.round((ds.protein || 0) * 10) / 10,
+          fat_g: Math.round((ds.fat || 0) * 10) / 10,
+          carbs_g: Math.round((ds.carbohydrate || 0) * 10) / 10,
+          fiber_g: Math.round((ds.fiber || 0) * 10) / 10,
+          sugars_g: Math.round((ds.sugar || 0) * 10) / 10,
+          sodium_mg: Math.round(ds.sodium || 0),
+          cholesterol_mg: Math.round(ds.cholesterol || 0),
+          serving_size: ds.serving_description || '1 serving',
+          serving_weight_g: ds.metric_serving_amount ? ds.metric_serving_amount : null,
+          servings: allServings,
+          source: 'fatsecret',
+          source_id: String(f.food_id)
+        }
       } catch (err) {
         console.error('Barcode lookup error:', err)
         return null
       } finally {
         this.searchLoading = false
-      }
-    },
-
-    async searchOpenFoodFacts(query) {
-      if (!query || query.length < 2) {
-        this.offResults = []
-        return
-      }
-      try {
-        const res = await fetch(
-          `${OPENFOODFACTS_BASE}/search?search_terms=${encodeURIComponent(query)}&fields=code,product_name,brands,nutriments,serving_size,serving_quantity&page_size=25&sort_by=unique_scans_n`
-        )
-        const json = await res.json()
-        if (!json.products) { this.offResults = []; return }
-
-        this.offResults = json.products
-          .filter(p => p.product_name)
-          .map(p => {
-            const n = p.nutriments || {}
-            const servingG = p.serving_quantity || parseServingGrams(p.serving_size) || 100
-            return {
-              food_name: p.product_name,
-              brand: p.brands || null,
-              calories: Math.round(n['energy-kcal_serving'] || n['energy-kcal_100g'] || 0),
-              protein_g: Math.round(n.proteins_serving || n.proteins_100g || 0),
-              fat_g: Math.round(n.fat_serving || n.fat_100g || 0),
-              carbs_g: Math.round(n.carbohydrates_serving || n.carbohydrates_100g || 0),
-              fiber_g: Math.round((n.fiber_serving || n.fiber_100g || 0) * 10) / 10,
-              sugars_g: Math.round((n.sugars_serving || n.sugars_100g || 0) * 10) / 10,
-              sodium_mg: Math.round((n.sodium_serving || n.sodium_100g || 0) * 1000),
-              cholesterol_mg: Math.round((n['cholesterol_serving'] || n['cholesterol_100g'] || 0) * 1000),
-              serving_size: p.serving_size || '100g',
-              serving_weight_g: servingG,
-              source: 'openfoodfacts',
-              source_id: p.code
-            }
-          })
-      } catch (err) {
-        console.error('Open Food Facts search error:', err)
-        this.offResults = []
-      }
-    },
-
-    async getFatSecretToken() {
-      if (fatSecretToken && Date.now() < fatSecretTokenExpires) {
-        return fatSecretToken
-      }
-
-      if (!FATSECRET_CLIENT_ID || !FATSECRET_CLIENT_SECRET) {
-        console.warn('FatSecret API keys missing')
-        return null
-      }
-
-      try {
-        const credentials = btoa(`${FATSECRET_CLIENT_ID}:${FATSECRET_CLIENT_SECRET}`)
-        const response = await fetch('/api/fatsecret/token', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Basic ${credentials}`,
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: new URLSearchParams({
-            grant_type: 'client_credentials',
-            scope: 'basic'
-          })
-        })
-
-        if (!response.ok) {
-          throw new Error(`FatSecret Token Error: ${response.statusText}`)
-        }
-
-        const data = await response.json()
-        fatSecretToken = data.access_token
-        // Set expiry 5 minutes before actual expiry to be safe
-        fatSecretTokenExpires = Date.now() + (data.expires_in - 300) * 1000
-        return fatSecretToken
-      } catch (err) {
-        console.error('Error fetching FatSecret token:', err)
-        return null
       }
     },
 
@@ -492,32 +435,26 @@ export const useNutritionStore = defineStore('nutrition', {
         return
       }
 
-      const token = await this.getFatSecretToken()
-      if (!token) {
-        this.fatSecretResults = []
-        return
-      }
-
+      this.searchLoading = true
       try {
-        const params = new URLSearchParams({
-          method: 'foods.search',
+        const params = await getFatSecretParams('foods.search', {
           search_expression: query,
-          format: 'json',
           max_results: '20'
         })
 
-        const response = await fetch(`/api/fatsecret/rest?${params.toString()}`, {
-          method: 'POST', // FatSecret accepts POST for REST endpoints to keep query secure
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
+        const response = await fetch(`/api/fatsecret/rest?${params.queryString}`)
 
         if (!response.ok) {
-          throw new Error(`FatSecret API Error: ${response.statusText}`)
+          throw new Error(`FatSecret API Network Error: ${response.statusText}`)
         }
 
         const data = await response.json()
+        
+        if (data.error) {
+          console.error('FatSecret Search API Error:', data.error);
+          this.fatSecretResults = []
+          return
+        }
         
         if (!data.foods || !data.foods.food) {
           this.fatSecretResults = []
@@ -527,7 +464,6 @@ export const useNutritionStore = defineStore('nutrition', {
         const foods = Array.isArray(data.foods.food) ? data.foods.food : [data.foods.food]
 
         this.fatSecretResults = foods.map(f => {
-          // FatSecret returns a description like "Per 100g - Calories: 250kcal | Fat: 10.00g | Carbs: 30.00g | Protein: 5.00g"
           let cal = 0, p = 0, f_val = 0, c = 0
           const desc = f.food_description || ''
           
@@ -543,8 +479,7 @@ export const useNutritionStore = defineStore('nutrition', {
           const cMatch = desc.match(/Carbs:\s*([\d.]+)/i)
           if (cMatch) c = Math.round(parseFloat(cMatch[1]))
 
-          // Parse serving size from the start of description (e.g. "Per 100g - ...")
-          let servingSize = '100g'
+          let servingSize = '1 serving'
           const servingMatch = desc.match(/^Per\s+([^-]+)\s*-/i)
           if (servingMatch) {
             servingSize = servingMatch[1].trim()
@@ -565,9 +500,77 @@ export const useNutritionStore = defineStore('nutrition', {
       } catch (err) {
         console.error('FatSecret search error:', err)
         this.fatSecretResults = []
+      } finally {
+        this.searchLoading = false
       }
     },
 
+
+    async getFoodDetails(foodId) {
+      try {
+        const detailsParams = await getFatSecretParams('food.get.v4', {
+          food_id: String(foodId)
+        })
+
+        const res = await fetch(`/api/fatsecret/rest?${detailsParams.queryString}`)
+        const json = await res.json()
+
+        if (json.error || !json.food) {
+          console.error('FatSecret Food Details Error:', json.error || 'No food data')
+          return null
+        }
+
+        const f = json.food
+        const rawServings = f.servings?.serving
+        const servingsArr = Array.isArray(rawServings) ? rawServings : (rawServings ? [rawServings] : [])
+
+        // Parse ALL servings with full nutrition data
+        const allServings = servingsArr.map(s => ({
+          serving_id: s.serving_id,
+          serving_description: s.serving_description || '',
+          metric_serving_amount: parseFloat(s.metric_serving_amount || 0),
+          metric_serving_unit: s.metric_serving_unit || 'g',
+          number_of_units: parseFloat(s.number_of_units || 1),
+          measurement_description: s.measurement_description || '',
+          calories: parseFloat(s.calories || 0),
+          protein: parseFloat(s.protein || 0),
+          fat: parseFloat(s.fat || 0),
+          carbohydrate: parseFloat(s.carbohydrate || 0),
+          fiber: parseFloat(s.fiber || 0),
+          sugar: parseFloat(s.sugar || 0),
+          sodium: parseFloat(s.sodium || 0),
+          cholesterol: parseFloat(s.cholesterol || 0),
+        }))
+
+        // Pick a default serving (prefer natural serving over raw 100g)
+        const defaultServing = allServings.find(s =>
+          s.measurement_description !== 'g' && s.measurement_description !== 'ml'
+        ) || allServings[0]
+
+        const ds = defaultServing || {}
+
+        return {
+          food_name: f.food_name || 'Unknown Product',
+          brand: f.brand_name || null,
+          calories: Math.round(ds.calories || 0),
+          protein_g: Math.round((ds.protein || 0) * 10) / 10,
+          fat_g: Math.round((ds.fat || 0) * 10) / 10,
+          carbs_g: Math.round((ds.carbohydrate || 0) * 10) / 10,
+          fiber_g: Math.round((ds.fiber || 0) * 10) / 10,
+          sugars_g: Math.round((ds.sugar || 0) * 10) / 10,
+          sodium_mg: Math.round(ds.sodium || 0),
+          cholesterol_mg: Math.round(ds.cholesterol || 0),
+          serving_size: ds.serving_description || '1 serving',
+          serving_weight_g: ds.metric_serving_amount ? ds.metric_serving_amount : null,
+          servings: allServings,
+          source: 'fatsecret',
+          source_id: String(f.food_id)
+        }
+      } catch (err) {
+        console.error('Food details fetch error:', err)
+        return null
+      }
+    },
 
     async fetchRecentFoods() {
       const auth = useAuthStore()

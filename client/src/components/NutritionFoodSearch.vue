@@ -2,43 +2,26 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useNutritionStore } from '@/stores/nutrition'
 
-const props = defineProps({ hour: Number, date: Date })
+const props = defineProps({ hour: Number, date: Date, exactTime: { type: Boolean, default: false } })
 const emit = defineEmits(['close', 'select-food', 'open-scanner'])
 const nutrition = useNutritionStore()
 
-import CustomFoodModal from './CustomFoodModal.vue'
-
 const searchQuery = ref('')
 const activeTab = ref('search')
-const showCustomModal = ref(false)
 
 let debounceTimer = null
 
-// Merge USDA + OFF + FatSecret + custom results, deduplicated
+// Merge FatSecret results (deduplicated)
 const allResults = computed(() => {
-  const custom = nutrition.customFoods || []
-  const usda = nutrition.searchResults || []
-  const off = nutrition.offResults || []
   const fatsecret = nutrition.fatSecretResults || []
   const seen = new Set()
   const merged = []
-  // Custom first, then FatSecret, then OFF (branded), then USDA
-  custom.forEach(f => {
-    const k = (f.food_name || '').toLowerCase()
-    if (k && !seen.has(k)) { seen.add(k); merged.push(f) }
-  })
+  
   fatsecret.forEach(f => {
     const k = (f.food_name || '').toLowerCase()
     if (k && !seen.has(k)) { seen.add(k); merged.push(f) }
   })
-  off.forEach(f => {
-    const k = (f.food_name || '').toLowerCase()
-    if (k && !seen.has(k)) { seen.add(k); merged.push(f) }
-  })
-  usda.forEach(f => {
-    const k = (f.food_name || '').toLowerCase()
-    if (k && !seen.has(k)) { seen.add(k); merged.push(f) }
-  })
+  
   return merged
 })
 
@@ -52,17 +35,11 @@ watch(searchQuery, (q) => {
   clearTimeout(debounceTimer)
   displayResults.value = 10
   if (!q || q.length < 2) {
-    nutrition.searchResults = []
-    nutrition.offResults = []
-    nutrition.customFoods = []
     nutrition.fatSecretResults = []
     return
   }
   debounceTimer = setTimeout(() => {
     nutrition.searchFatSecret(q)
-    nutrition.searchUSDA(q)
-    nutrition.searchOpenFoodFacts(q)
-    nutrition.searchCustomFoods(q)
   }, 400)
 }, { immediate: true })
 
@@ -73,7 +50,7 @@ function formatDateTime() {
   const now = new Date()
   let dateObj = new Date(d)
   dateObj.setHours(props.hour)
-  if (d.toDateString() === now.toDateString() && props.hour === now.getHours()) {
+  if (props.exactTime) {
     dateObj.setMinutes(now.getMinutes())
   } else {
     dateObj.setMinutes(0)
@@ -87,23 +64,11 @@ function selectFood(food) {
 }
 
 function getSourceBadge(source) {
-  if (source === 'fatsecret') return 'FatSecret'
-  if (source === 'openfoodfacts') return 'OFF'
-  if (source === 'usda') return 'USDA'
-  if (source === 'custom') return '★'
   if (source === 'recent') return '⏱'
   return ''
 }
 
 onMounted(() => { nutrition.fetchRecentFoods() })
-
-async function handleSaveCustomFood(payload) {
-  const newFood = await nutrition.createCustomFood(payload)
-  showCustomModal.value = false
-  if (newFood) {
-    selectFood(newFood)
-  }
-}
 </script>
 
 <template>
@@ -115,9 +80,6 @@ async function handleSaveCustomFood(payload) {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m15 18-6-6 6-6"/></svg>
         </button>
         <span class="nfs-top-title">Add Food</span>
-        <button class="nfs-top-create" @click="showCustomModal = true">
-          + Custom
-        </button>
       </div>
 
       <!-- Header -->
@@ -210,12 +172,6 @@ async function handleSaveCustomFood(payload) {
         </div>
       </div>
     </div>
-    
-    <CustomFoodModal 
-      v-if="showCustomModal" 
-      @close="showCustomModal = false"
-      @save="handleSaveCustomFood"
-    />
   </div>
 </template>
 
@@ -323,10 +279,6 @@ async function handleSaveCustomFood(payload) {
   font-family: 'Space Grotesk', sans-serif; font-size: 0.55rem; font-weight: 700;
   padding: 2px 6px; border-radius: 6px; flex-shrink: 0; letter-spacing: 0.05em;
 }
-.nfs-src-openfoodfacts { background: rgba(46,204,113,0.12); color: #2ecc71; }
-.nfs-src-usda { background: rgba(59,130,246,0.12); color: #3B82F6; }
-.nfs-src-fatsecret { background: rgba(236,72,153,0.12); color: #EC4899; }
-.nfs-src-custom { background: rgba(223,255,0,0.1); color: #DFFF00; }
 .nfs-src-recent { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); }
 .nfs-food-brand {
   font-family: 'Space Grotesk', sans-serif; font-size: 0.68rem;
@@ -396,15 +348,4 @@ async function handleSaveCustomFood(payload) {
   font-weight: 500 !important;
 }
 
-.nfs-top-create {
-  background: rgba(223, 255, 0, 0.1); border: 1px solid rgba(223, 255, 0, 0.2);
-  color: #DFFF00; font-family: 'Space Grotesk', sans-serif; font-weight: 600;
-  font-size: 0.75rem; cursor: pointer; transition: all 0.2s;
-  padding: 6px 12px; border-radius: 8px;
-  position: relative; z-index: 2;
-}
-.nfs-top-create:hover { 
-  background: rgba(223, 255, 0, 0.15); 
-  transform: translateY(-1px);
-}
 </style>

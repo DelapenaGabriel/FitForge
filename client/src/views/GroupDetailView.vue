@@ -120,7 +120,8 @@ const handleGoalWeightUpdated = async ({ userId, newWeight }) => {
   await Promise.all([
     groups.fetchMembers(groupId.value),
     groups.fetchLeaderboard(groupId.value),
-    groups.fetchGroup(groupId.value)
+    groups.fetchGroup(groupId.value),
+    groups.fetchAllLogs(groupId.value)
   ]);
 };
 
@@ -1094,8 +1095,8 @@ const getTargetStatus = (target) => {
                       </div>
                       <div class="feed-post-meta">
                         <span class="feed-type-badge log">Daily Log</span>
-                        <div v-if="item.userId === auth.user?.id" class="feed-post-actions">
-                           <button class="action-btn-minimal" @click="activeTab = 'progress'; startEditLog(item)" title="Edit">
+                        <div v-if="item.userId === auth.user?.id || isCoach" class="feed-post-actions">
+                           <button class="action-btn-minimal" @click="item.userId === auth.user?.id ? (activeTab = 'progress', startEditLog(item)) : viewMemberLogs(groups.members.find(m => m.userId === item.userId))" title="Edit">
                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" class="action-icon" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                            </button>
                         </div>
@@ -1209,8 +1210,9 @@ const getTargetStatus = (target) => {
                     </svg>
                     <span class="lb-progress-val">{{ Math.round(entry.progressPercent || 0) }}%</span>
                  </div>
-                 <button v-if="entry.userId !== auth.user?.id" class="btn-profile-peek" @click="viewMemberLogs(entry)">
-                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                 <button v-if="entry.userId !== auth.user?.id" class="lb-view-progress-btn" @click="viewMemberLogs(entry)">
+                   <span>View Progress</span>
+                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                  </button>
               </div>
             </div>
@@ -2857,6 +2859,37 @@ button.feed-comment-count:hover {
 @keyframes spinner-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ── View Progress Button ── */
+.lb-view-progress-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(217, 255, 77, 0.05);
+  border: 1px solid rgba(217, 255, 77, 0.2);
+  color: var(--accent-lime, #DFFF00);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-top: 8px;
+}
+.lb-view-progress-btn:hover {
+  background: rgba(217, 255, 77, 0.15);
+  border-color: var(--accent-lime, #DFFF00);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(217, 255, 77, 0.15);
+}
+.lb-view-progress-btn svg {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lb-view-progress-btn:hover svg {
+  transform: translateX(3px);
 }
 </style>
 
